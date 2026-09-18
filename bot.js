@@ -1,3 +1,10 @@
+// bot.js faylining eng tepasiga joylashtiring:
+const path = require('path');
+if (process.platform === 'linux') {
+    // Render serverida joriy papkani tizim PATH muhitiga qo'shadi
+    process.env.PATH = process.env.PATH + ':' + path.resolve('./');
+}
+
 require('dotenv').config();
 const config = require('./config');
 process.env.TZ = config.timezone;
@@ -8,7 +15,6 @@ const { Telegraf, Markup, session, Input } = require('telegraf');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const os = require('os');
-const path = require('path');
 const NodeID3 = require('node-id3');
 const ffmpeg = require('ffmpeg-static');
 
