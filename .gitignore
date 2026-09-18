@@ -3,3 +3,5 @@ node_modules/
 .envnode_modules/
 .env
 data.json
+yt-dlp.exe
+yt-dlp
