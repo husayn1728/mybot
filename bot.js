@@ -8,6 +8,7 @@ const { Telegraf, Markup, session, Input } = require('telegraf');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const os = require('os');
+const path = require('path');
 const NodeID3 = require('node-id3');
 const ffmpeg = require('ffmpeg-static');
 
@@ -332,19 +333,17 @@ async function downloadMusicMp3(result) {
     const ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
     const ffmpegLocation = resolveFfmpegLocation();
     const args = [
-    rawUrl,
-    '--no-playlist',
-    '-f', 'ba/b', // 'bestaudio' so'zini qisqartirib 'ba/b' qildik, bu eng mos audioni tez topadi
-    '-x',
-    '--audio-format', 'mp3',
-    '--audio-quality', '5', // Katta K harfi olib tashlandi (5 - tez va sifatli standart)
-    '--max-filesize', '48M',
-    '--no-warnings',
-    '--no-progress',
-    '--external-downloader', 'aria2c', // Agar kompyuterda aria2 bo'lsa, yuklashni 10 baravar tezlashtiradi (ixtiyoriy)
-    '-o', path.join(tempDir, 'music.%(ext)s')
-];
-
+      rawUrl,
+      '--no-playlist',
+      '-f', 'bestaudio/best',
+      '-x',
+      '--audio-format', 'mp3',
+      '--audio-quality', '192K',
+      '--max-filesize', '48M',
+      '--no-warnings',
+      '--no-progress',
+      '-o', path.join(tempDir, 'music.%(ext)s')
+    ];
     if (ffmpegLocation) args.push('--ffmpeg-location', ffmpegLocation);
     if (process.env.YTDLP_COOKIES) args.push('--cookies', process.env.YTDLP_COOKIES);
 
