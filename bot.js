@@ -307,8 +307,17 @@ function formatMusicDuration(value) {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+function resolveFfmpegLocation() {
+  const dirs = [process.env.FFMPEG_LOCATION, '/opt/homebrew/bin', '/usr/local/bin'].filter(Boolean);
+  for (const dir of dirs) {
+    if (fsSync.existsSync(path.join(dir, 'ffmpeg'))) return dir;
+  }
+  if (ffmpeg && fsSync.existsSync(ffmpeg)) return ffmpeg;
+  return null; // yt-dlp PATH'dan o'zi qidiradi
+}
+
 async function downloadMusicMp3(result) {
-  const tempDir = await fs.mkdtemp(path.join('/tmp', 'kino-music-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kino-music-'));
   const outputPath = path.join(tempDir, 'music.mp3');
 
   try {
@@ -316,60 +325,56 @@ async function downloadMusicMp3(result) {
     const title = result?.title || 'Noma\'lum musiqa';
     const artist = result?.artist || 'Noma\'lum artist';
 
-    if (!isYoutubeUrl(rawUrl)) {
+        if (!isYoutubeUrl(rawUrl)) {
       throw new Error('Faqat YouTube musiqalari qo\'llab-quvvatlanadi.');
     }
 
-    const ytstream = require('yt-stream');
-    const ytAudio = await ytstream.stream(rawUrl, {
-      type: 'audio',
-      quality: 'high',
-      download: true,
-      highWaterMark: 32 * 1024 * 1024
-    });
-    const audioStream = ytAudio.stream;
     const { spawn } = require('child_process');
-    if (!ffmpeg) throw new Error('ffmpeg-static binary topilmadi.');
-    const ffmpegProcess = spawn(ffmpeg, [
-      '-hide_banner',
-      '-loglevel', 'error',
-      '-i', 'pipe:0',
-      '-vn',
-      '-acodec', 'libmp3lame',
-      '-b:a', '192k',
-      '-f', 'mp3',
-      outputPath
-    ]);
+    const ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
+    const ffmpegLocation = resolveFfmpegLocation();
+    const args = [
+    rawUrl,
+    '--no-playlist',
+    '-f', 'ba/b', // 'bestaudio' so'zini qisqartirib 'ba/b' qildik, bu eng mos audioni tez topadi
+    '-x',
+    '--audio-format', 'mp3',
+    '--audio-quality', '5', // Katta K harfi olib tashlandi (5 - tez va sifatli standart)
+    '--max-filesize', '48M',
+    '--no-warnings',
+    '--no-progress',
+    '--external-downloader', 'aria2c', // Agar kompyuterda aria2 bo'lsa, yuklashni 10 baravar tezlashtiradi (ixtiyoriy)
+    '-o', path.join(tempDir, 'music.%(ext)s')
+];
+
+    if (ffmpegLocation) args.push('--ffmpeg-location', ffmpegLocation);
+    if (process.env.YTDLP_COOKIES) args.push('--cookies', process.env.YTDLP_COOKIES);
 
     await new Promise((resolve, reject) => {
-      let ffmpegError = '';
-      let settled = false;
-      const fail = (error) => {
-        if (settled) return;
-        settled = true;
-        ffmpegProcess.kill('SIGKILL');
-        reject(error);
-      };
+      const proc = spawn(ytdlpPath, args);
+      let stderr = '';
+      const timer = setTimeout(() => {
+        proc.kill('SIGKILL');
+        reject(new Error('yt-dlp vaqt tugadi (3 daqiqa).'));
+      }, 3 * 60 * 1000);
 
-      ffmpegProcess.stderr.setEncoding('utf8');
-      ffmpegProcess.stderr.on('data', (chunk) => { ffmpegError += chunk; });
-      audioStream.on('error', fail);
-      ffmpegProcess.stdin.on('error', fail);
-      ffmpegProcess.on('error', fail);
-      ffmpegProcess.on('close', (code) => {
-        if (settled) return;
-        if (code === 0) {
-          settled = true;
-          resolve();
-        } else {
-          fail(new Error(`ffmpeg MP3 conversion failed (${code}): ${ffmpegError.trim()}`));
-        }
+      proc.stderr.setEncoding('utf8');
+      proc.stderr.on('data', (chunk) => { stderr += chunk; });
+      proc.on('error', (error) => {
+        clearTimeout(timer);
+        reject(error.code === 'ENOENT'
+          ? new Error('yt-dlp o\'rnatilmagan (brew install yt-dlp).')
+          : error);
       });
-      audioStream.pipe(ffmpegProcess.stdin);
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        if (code === 0) return resolve();
+        const lastLine = stderr.trim().split('\n').filter(Boolean).pop() || '';
+        reject(new Error(`yt-dlp xatosi (${code}): ${lastLine}`));
+      });
     });
 
-    const stats = await fs.stat(outputPath);
-    if (!stats.size || stats.size < 1024) {
+    const stats = await fs.stat(outputPath).catch(() => null);
+    if (!stats || stats.size < 1024) {
       throw new Error('Musiqa fayli yetarli emas yoki buzilgan.');
     }
 
