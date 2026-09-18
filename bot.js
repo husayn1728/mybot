@@ -236,7 +236,7 @@ function buildYoutubeSearchUrl(query, key) {
     q: query,
     key
   });
-  return `https://www.googleapis.com/youtube/v3/search?${params.toString()}`;
+  return `https://www.googleapis.com/youtube/v3/search?${params.toString().replace(/\+/g, '%20')}`;
 }
 
 function buildYoutubeVideosUrl(ids, key) {
