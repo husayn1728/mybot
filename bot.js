@@ -1,10 +1,3 @@
-// bot.js faylining eng tepasiga joylashtiring:
-const path = require('path');
-if (process.platform === 'linux') {
-    // Render serverida joriy papkani tizim PATH muhitiga qo'shadi
-    process.env.PATH = process.env.PATH + ':' + path.resolve('./');
-}
-
 require('dotenv').config();
 const config = require('./config');
 process.env.TZ = config.timezone;
