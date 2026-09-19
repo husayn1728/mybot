@@ -8,7 +8,7 @@ process.env.YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || 'test-youtube-key';
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildYoutubeSearchUrl, normalizeYouTubeSearchResult } = require('./bot');
+const { buildYoutubeSearchUrl, normalizeYouTubeSearchResult, isSupportedMediaUrl, youtubeVideoFormatFilter } = require('./bot');
 
 test('buildYoutubeSearchUrl includes query and API key', () => {
   const url = buildYoutubeSearchUrl('billie eilish', 'secret-key');
@@ -31,4 +31,17 @@ test('normalizeYouTubeSearchResult maps video metadata correctly', () => {
   assert.equal(result.title, 'Lovely');
   assert.equal(result.artist, 'Billie Eilish');
   assert.equal(result.downloadUrl, 'https://www.youtube.com/watch?v=abc123');
+});
+
+test('isSupportedMediaUrl recognizes supported social links', () => {
+  assert.equal(isSupportedMediaUrl('https://www.youtube.com/watch?v=abc123'), true);
+  assert.equal(isSupportedMediaUrl('https://www.instagram.com/reel/abc123/'), true);
+  assert.equal(isSupportedMediaUrl('https://www.tiktok.com/@user/video/123'), true);
+  assert.equal(isSupportedMediaUrl('https://example.com/file.mp4'), false);
+});
+
+test('youtubeVideoFormatFilter prefers mp4 video streams over audio-only streams', () => {
+  const filter = youtubeVideoFormatFilter('best');
+  assert.match(filter, /mp4/i);
+  assert.match(filter, /bestvideo/i);
 });
