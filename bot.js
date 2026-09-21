@@ -475,7 +475,10 @@ function welcomeMarkup(ctx) {
     [{ text: '🎵 Musiqa qidirish', callback_data: 'music:search', style: 'success' }],
     [{ text: '❓ Yordam', callback_data: 'help', style: 'success' }]
   ];
-  if (isAdmin(ctx)) rows.push([{ text: '🛠 Admin panel', callback_data: 'admin:panel', style: 'success' }]);
+  if (isAdmin(ctx)) {
+    rows.push([{ text: '🔐 Maxfiy kanalga qo\'shilish', callback_data: 'admin:join_requests', style: 'success' }]);
+    rows.push([{ text: '🛠 Admin panel', callback_data: 'admin:panel', style: 'success' }]);
+  }
   return Markup.inlineKeyboard(rows).reply_markup;
 }
 
