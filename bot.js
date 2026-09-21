@@ -55,6 +55,14 @@ const adminLogSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now, index: true }
 }, { versionKey: false });
 
+const channelSchema = new mongoose.Schema({
+  channelId: { type: String, required: true, unique: true, index: true },
+  ownerId: { type: String, required: true, index: true },
+  channelName: { type: String, default: '' },
+  autoApprove: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now }
+}, { versionKey: false });
+
 const botConfigSchema = new mongoose.Schema({
   configKey: { type: String, default: 'main_config', unique: true },
   channels: { type: Array, default: [] },
@@ -67,6 +75,7 @@ const BotConfig = mongoose.models.BotConfig || mongoose.model('BotConfig', botCo
 const Session = mongoose.models.BotSession || mongoose.model('BotSession', sessionSchema);
 const Broadcast = mongoose.models.Broadcast || mongoose.model('Broadcast', broadcastSchema);
 const AdminLog = mongoose.models.AdminLog || mongoose.model('AdminLog', adminLogSchema);
+const Channel = mongoose.models.Channel || mongoose.model('Channel', channelSchema);
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -82,6 +91,7 @@ const ADMIN_USERNAME = config.admin.username;
 const ADMIN_TG_ID = config.admin.telegramId;
 const adminPermissions = ['broadcast', 'stats', 'settings', 'admins'];
 const adminRegistry = new Map();
+const pendingJoinRequests = new Map();
 const data = { settings: { requiredChannels: [] } };
 const premiumEmojis = {
   welcome: '<tg-emoji emoji-id="5199785165735367039">⚡️</tg-emoji>',
@@ -459,7 +469,8 @@ function welcomeMessage(ctx) {
 function welcomeMarkup(ctx) {
   const rows = [
     [{ text: '🎵 Musiqa qidirish', callback_data: 'music:search', style: 'success' }],
-    [{ text: '❓ Yordam', callback_data: 'help', style: 'success' }]
+    [{ text: '❓ Yordam', callback_data: 'help', style: 'success' }],
+    [{ text: '🔒 Mening kanallarim', callback_data: 'my_channels', style: 'success' }]
   ];
   if (isAdmin(ctx)) rows.push([{ text: '🛠 Admin panel', callback_data: 'admin:panel', style: 'success' }]);
   return Markup.inlineKeyboard(rows).reply_markup;
@@ -743,9 +754,131 @@ bot.use(async (ctx, next) => {
   if (await requiredSubscription(ctx)) return next();
 });
 
+function formatChannelMode(autoApprove) {
+  return autoApprove ? 'Avtomatik' : 'Qo\'lda';
+}
+
+function channelSettingsKeyboard(channel) {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(`🔁 Rejim: ${formatChannelMode(channel.autoApprove)}`, `channel:toggle_mode:${channel.channelId}`)],
+    [Markup.button.callback('📥 Barcha so\'rovlarni bittada tasdiqlash', `channel:bulk_approve:${channel.channelId}`)],
+    [Markup.button.callback('⬅️ Orqaga', 'my_channels')]
+  ]);
+}
+
+async function getUserChannels(ownerId) {
+  return Channel.find({ ownerId: String(ownerId) }).sort({ createdAt: -1 }).lean();
+}
+
+async function ensureBotIsAdminForChannel(ctx, channelId) {
+  const chat = await ctx.telegram.getChat(channelId);
+  const administrators = await ctx.telegram.getChatAdministrators(channelId);
+  const userIsAdmin = administrators.some((member) => Number(member.user.id) === Number(ctx.from.id) && ['creator', 'administrator'].includes(member.status));
+  if (!userIsAdmin) {
+    throw new Error('Bu kanalni boshqarish uchun siz kanal administratori bo\'lishingiz kerak.');
+  }
+
+  const botInfo = await ctx.telegram.getMe();
+  const botMember = administrators.find((member) => Number(member.user.id) === Number(botInfo.id));
+  if (!botMember || !['creator', 'administrator'].includes(botMember.status)) {
+    throw new Error('Bot ushbu kanalga administrator sifatida qo\'shilgan bo\'lishi kerak.');
+  }
+
+  return {
+    id: String(chat.id),
+    title: chat.title || chat.username || 'Noma\'lum kanal',
+    username: chat.username ? `@${chat.username}` : ''
+  };
+}
+
+async function approveJoinRequest(ctx, chatId, userId) {
+  try {
+    if (typeof ctx.approveChatJoinRequest === 'function') {
+      await ctx.approveChatJoinRequest(chatId, userId);
+      return true;
+    }
+    await ctx.telegram.approveChatJoinRequest(chatId, userId);
+    return true;
+  } catch (error) {
+    console.error('approveJoinRequest failed:', error.response?.description || error.message);
+    return false;
+  }
+}
+
 bot.action('check_subscription', async (ctx) => {
   await ctx.answerCbQuery();
   if (await requiredSubscription(ctx)) return ctx.reply(welcomeMessage(ctx), replyOptions(welcomeMarkup(ctx) || userKeyboard(ctx).reply_markup));
+});
+
+bot.action('my_channels', async (ctx) => {
+  await ctx.answerCbQuery();
+  const channels = await getUserChannels(ctx.from.id);
+  if (!channels.length) {
+    return ctx.reply('Sizning kanalingiz yo\'q.\n\n➕ Kanal qo\'shish tugmasini bosing.', Markup.inlineKeyboard([
+      [Markup.button.callback('➕ Kanal qo\'shish', 'add_private_channel_start')],
+      [Markup.button.callback('⬅️ Orqaga', 'main_menu')]
+    ]));
+  }
+
+  const rows = channels.map((channel) => [Markup.button.callback(
+    `${channel.channelName || channel.channelId} (${formatChannelMode(channel.autoApprove)})`,
+    `channel:settings:${channel.channelId}`
+  )]);
+  rows.push([Markup.button.callback('➕ Kanal qo\'shish', 'add_private_channel_start')]);
+  rows.push([Markup.button.callback('⬅️ Orqaga', 'main_menu')]);
+
+  return ctx.reply('Mening kanallarim', Markup.inlineKeyboard(rows));
+});
+
+bot.action('add_private_channel_start', async (ctx) => {
+  await ctx.answerCbQuery();
+  ctx.session = { ...(ctx.session || {}), step: 'private_channel_id' };
+  return ctx.reply('Kanal ID sini yuboring. Masalan: -1001234567890 yoki @kanal_username.\n\nBotni shu kanalga admin qilib qo\'ying, keyin ma\'lumotlar bazasiga saqlanadi.', replyOptions());
+});
+
+bot.action(/^channel:settings:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const channelId = String(ctx.match[1]);
+  const channel = await Channel.findOne({ channelId, ownerId: String(ctx.from.id) }).lean();
+  if (!channel) return ctx.reply('Bu kanal topilmadi.');
+  return ctx.reply(
+    `Kanal: ${channel.channelName || channel.channelId}\nRejim: ${formatChannelMode(channel.autoApprove)}`,
+    channelSettingsKeyboard(channel)
+  );
+});
+
+bot.action(/^channel:toggle_mode:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const channelId = String(ctx.match[1]);
+  const channel = await Channel.findOne({ channelId, ownerId: String(ctx.from.id) });
+  if (!channel) return ctx.reply('Bu kanal topilmadi.');
+
+  channel.autoApprove = !channel.autoApprove;
+  await channel.save();
+
+  return ctx.reply(
+    `Rejim o\'zgartirildi: ${formatChannelMode(channel.autoApprove)}`,
+    channelSettingsKeyboard(channel.toObject())
+  );
+});
+
+bot.action(/^channel:bulk_approve:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const channelId = String(ctx.match[1]);
+  const channel = await Channel.findOne({ channelId, ownerId: String(ctx.from.id) });
+  if (!channel) return ctx.reply('Bu kanal topilmadi.');
+
+  const requests = pendingJoinRequests.get(channelId) || [];
+  if (!requests.length) return ctx.reply('Hozirda tasdiqlash uchun so\'rovlar yo\'q.', channelSettingsKeyboard(channel.toObject()));
+
+  let approved = 0;
+  for (const userId of requests) {
+    const ok = await approveJoinRequest(ctx, channelId, Number(userId));
+    if (ok) approved += 1;
+  }
+
+  pendingJoinRequests.delete(channelId);
+  return ctx.reply(`${approved} ta so\'rov tasdiqlandi.`, channelSettingsKeyboard(channel.toObject()));
 });
 
 bot.action('help', async (ctx) => {
@@ -1111,6 +1244,28 @@ bot.on('text', async (ctx) => {
     activateAdminPanel(ctx);
     return ctx.reply('Admin panel', adminKeyboard());
   }
+  if (step === 'private_channel_id') {
+    try {
+      const resolvedChannel = await ensureBotIsAdminForChannel(ctx, normalizeChannel(value));
+      const existing = await Channel.findOne({ channelId: String(resolvedChannel.id), ownerId: String(ctx.from.id) });
+      if (existing) {
+        reset(ctx);
+        return ctx.reply('Bu kanal allaqachon ro\'yxatga qo\'shilgan.', replyOptions(welcomeMarkup(ctx) || userKeyboard(ctx).reply_markup));
+      }
+
+      const savedChannel = await Channel.create({
+        channelId: String(resolvedChannel.id),
+        ownerId: String(ctx.from.id),
+        channelName: resolvedChannel.title,
+        autoApprove: true
+      });
+      reset(ctx);
+      return ctx.reply(`Kanal saqlandi: ${savedChannel.channelName}\nRejim: Avtomatik`, replyOptions(welcomeMarkup(ctx) || userKeyboard(ctx).reply_markup));
+    } catch (error) {
+      reset(ctx);
+      return ctx.reply(error.message || 'Kanalni qo\'shishda xatolik yuz berdi.');
+    }
+  }
   if (step === 'broadcast_caption') {
     ctx.session.broadcast.caption = rawText;
     ctx.session.broadcast.captionEntities = ctx.message.entities || [];
@@ -1164,6 +1319,29 @@ bot.on('text', async (ctx) => {
 bot.on('callback_query', async (ctx) => {
   await safeAnswerCbQuery(ctx);
   reset(ctx);
+});
+
+bot.on('chat_join_request', async (ctx) => {
+  const request = ctx.chatJoinRequest || ctx.update?.chat_join_request;
+  if (!request) return;
+
+  const channelId = String(request.chat?.id || '');
+  const userId = Number(request.from?.id || 0);
+  if (!channelId || !userId) return;
+
+  const channel = await Channel.findOne({ channelId: String(channelId) }).lean();
+  if (!channel) return;
+
+  if (channel.autoApprove === true) {
+    await approveJoinRequest(ctx, channelId, userId);
+    return;
+  }
+
+  const queued = pendingJoinRequests.get(channelId) || [];
+  if (!queued.includes(String(userId))) {
+    queued.push(String(userId));
+    pendingJoinRequests.set(channelId, queued);
+  }
 });
 
 bot.catch(async (error, ctx) => {
