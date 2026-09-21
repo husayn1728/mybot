@@ -848,6 +848,26 @@ bot.action('check_subscription', async (ctx) => {
   if (await requiredSubscription(ctx)) return ctx.reply(welcomeMessage(ctx), replyOptions(welcomeMarkup(ctx) || userKeyboard(ctx).reply_markup));
 });
 
+async function getAdminChatSections(ctx) {
+  const channels = await getUserChannels(ctx.from.id);
+  const sections = { channels: [], groups: [] };
+
+  for (const channel of channels) {
+    const chat = await ctx.telegram.getChat(channel.channelId).catch(() => null);
+    const type = chat && (chat.type === 'group' || chat.type === 'supergroup') ? 'group' : 'channel';
+    const item = {
+      ...channel,
+      chatType: type,
+      title: chat?.title || channel.channelName || channel.channelId
+    };
+
+    if (type === 'group') sections.groups.push(item);
+    else sections.channels.push(item);
+  }
+
+  return sections;
+}
+
 async function renderMyChannels(ctx) {
   const channels = await getUserChannels(ctx.from.id);
   if (!channels.length) {
@@ -883,23 +903,31 @@ bot.command('channels', async (ctx) => {
 
 async function startAddPrivateChannel(ctx) {
   const botLink = `https://t.me/${config.botUsername}?startgroup=1`;
-  const existingChannels = await getUserChannels(ctx.from.id);
+  const sections = await getAdminChatSections(ctx);
   const rows = [];
 
-  if (existingChannels.length) {
-    rows.push(...existingChannels.map((channel) => [actionButton(
-      `📌 ${channel.channelName || channel.channelId}`,
-      `channel:settings:${channel.channelId}`,
-      channel.autoApprove ? 'success' : 'secondary'
-    )]));
-  }
+  const addList = (label, items) => {
+    if (!items.length) return;
+    rows.push([{ text: label, callback_data: 'noop' }]);
+    items.forEach((channel) => {
+      rows.push([actionButton(
+        `📌 ${channel.title || channel.channelName || channel.channelId}`,
+        `channel:settings:${channel.channelId}`,
+        channel.autoApprove ? 'success' : 'secondary'
+      )]);
+    });
+  };
+
+  addList('📣 Kanallar', sections.channels);
+  addList('👥 Guruhlar', sections.groups);
 
   rows.push([urlButton('🔐 Kanal/guruhga admin qilish', botLink, 'primary')]);
   rows.push([actionButton('⬅️ Orqaga', 'main_menu', 'secondary')]);
 
+  const total = sections.channels.length + sections.groups.length;
   return ctx.reply(
-    existingChannels.length
-      ? 'Sizning admin bo\'lgan kanallar/guruhlar va yangi kanal qo\'shish:'
+    total
+      ? 'Sizning admin bo\'lgan kanallar va guruhlar:'
       : 'Qaysi kanal yoki guruhga botni admin qilishni xohlaysiz?\n\nQuyidagi tugma orqali admin qilish oynasiga o\'ting va kanal yoki guruhni tanlang.',
     Markup.inlineKeyboard(rows)
   );
