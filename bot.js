@@ -103,10 +103,31 @@ const premiumEmojis = {
 const defaultMessages = {
   welcome: `${premiumEmojis.welcome} Assalomu alaykum {nickname}\n\n${premiumEmojis.bot} @{bot_username} orqali siz musiqani tezda topishingiz mumkin\n${premiumEmojis.confirm} Musiqa nomi yoki artistini yuboring va natijalarni tanlang`,
   subscriptionRequired: `${premiumEmojis.warning} Botdan foydalanish uchun quyidagi kanallarga obuna bo\'ling`,
-  invalidCode: '<tg-emoji emoji-id="5212992409213872592">❌</tg-emoji> Noto\'g\'ri kirish. Musiqa nomini yoki artistini yuboring.',
+  invalidCode: '<tg-emoji emoji-id="5212992409213872592">❌</tg-emoji> Noto\'g\'ri buyruq. Asosiy menyuga qatish uchun /menu ni bosing.',
   nonNumericCode: 'Musiqa qidirishda faqat matn kiriting. Qayta yuboring.',
   help: `${premiumEmojis.web} Musiqa qidirish uchun /music yoki "🎵 Musiqa qidirish" tugmasini bosing.\n\nYordam olish uchun "❓ Yordam" tugmasini tanlang.`
 };
+
+function getHelpText(ctx) {
+  const lines = [
+    `${premiumEmojis.web} Bot buyruqlari:`,
+    '',
+    '/start - Botni qayta ishga tushirish va bosh menyu ochish',
+    '/menu - Asosiy menyuni qayta ochish',
+    '/help - Bu yordam sahifasini ochish',
+    '/music - Musiqa qidirish',
+    '/music <qidiruv so\'zi> - To\'g\'ridan-to\'g\'ri qidiruvni boshlash',
+    '/mychannels yoki /mychannels - Mening kanallarim ro\'yxatini ko\'rish',
+    '/channels - Mening kanallarim ro\'yxatini ko\'rish',
+    '/addchannel yoki /newchannel - Yangi shaxsiy kanal qo\'shish',
+    '/togglemode <channel_id> - Kanal rejimini Avtomatik / Qo\'lda o\'zgartirish',
+    '/bulkapprove <channel_id> - Kanalga kelgan barcha so\'rovlarni bir vaqtda tasdiqlash',
+    '/admin - Admin panelni ochish (faqat admin uchun)',
+    '',
+    'Yana: tugmalar orqali ham ishlatishingiz mumkin.'
+  ];
+  return lines.join('\n');
+}
 function isAdmin(ctx) {
   const telegramId = Number(ctx.from?.id);
   if (telegramId === ADMIN_TG_ID || ctx.from?.username?.toLowerCase() === ADMIN_USERNAME) return true;
@@ -129,13 +150,22 @@ function permissionsLabel(permissions) {
   return permissions.map((permission) => labels[permission] || permission).join(', ') || 'Huquq berilmagan';
 }
 
+function actionButton(text, callbackData, style = 'secondary') {
+  return { text, callback_data: callbackData, style };
+}
+
+function urlButton(text, url, style = 'primary') {
+  return { text, url, style };
+}
+
 function adminManagementKeyboard(admin) {
-  const rows = adminPermissions.map((permission) => [Markup.button.callback(
+  const rows = adminPermissions.map((permission) => [actionButton(
     `${admin.permissions.includes(permission) ? '✅' : '⬜'} ${permission}`,
-    `admin:perm:${admin.telegramId}:${permission}`
+    `admin:perm:${admin.telegramId}:${permission}`,
+    admin.permissions.includes(permission) ? 'success' : 'secondary'
   )]);
-  rows.push([Markup.button.callback('🗑 Adminni o\'chirish', `admin:remove:${admin.telegramId}`)]);
-  rows.push([Markup.button.callback('⬅️ Adminlar ro\'yxati', 'admin:admins')]);
+  rows.push([actionButton('🗑 Adminni o\'chirish', `admin:remove:${admin.telegramId}`, 'danger')]);
+  rows.push([actionButton('⬅️ Adminlar ro\'yxati', 'admin:admins', 'primary')]);
   return Markup.inlineKeyboard(rows);
 }
 
@@ -406,21 +436,21 @@ function adminKeyboard() {
   const can = (permission) => !ctx || hasPermission(ctx, permission);
   const rows = [];
   if (can('stats')) rows.push([
-    Markup.button.callback('📊 Statistika', 'admin:stats')
+    actionButton('📊 Statistika', 'admin:stats', 'primary')
   ]);
   if (can('broadcast')) rows.push([
-    Markup.button.callback('📣 Xabar yuborish', 'admin:broadcast')
+    actionButton('📣 Xabar yuborish', 'admin:broadcast', 'primary')
   ]);
   if (can('settings')) rows.push([
-    Markup.button.callback('📢 Obuna kanalini qo\'shish', 'admin:subscription'),
-    Markup.button.callback('📋 Obuna kanallari', 'admin:required_list')
+    actionButton('📢 Obuna kanalini qo\'shish', 'admin:subscription', 'success'),
+    actionButton('📋 Obuna kanallari', 'admin:required_list', 'secondary')
   ]);
   if (can('settings')) rows.push([
-    Markup.button.callback('❌ Obunani o\'chirish', 'admin:subscription_off')
+    actionButton('❌ Obunani o\'chirish', 'admin:subscription_off', 'danger')
   ]);
-  if (isOwner(ctx || {})) rows.push([Markup.button.callback('👥 Adminlarni boshqarish', 'admin:admins')]);
-  if (isOwner(ctx || {})) rows.push([Markup.button.callback('🧾 Admin loglari', 'admin:logs')]);
-  rows.push([Markup.button.callback('🚪 Paneldan chiqish', 'admin:exit')]);
+  if (isOwner(ctx || {})) rows.push([actionButton('👥 Adminlarni boshqarish', 'admin:admins', 'primary')]);
+  if (isOwner(ctx || {})) rows.push([actionButton('🧾 Admin loglari', 'admin:logs', 'secondary')]);
+  rows.push([actionButton('🚪 Paneldan chiqish', 'admin:exit', 'danger')]);
   return Markup.inlineKeyboard(rows);
 }
 
@@ -477,11 +507,12 @@ function welcomeMarkup(ctx) {
 }
 
 function subscriptionKeyboard(channels) {
-  const rows = channels.map((channel, index) => [Markup.button.url(
+  const rows = channels.map((channel, index) => [urlButton(
     `📢 ${index + 1} - kanal`,
-    `https://t.me/${String(channel.username).replace(/^@/, '')}`
+    `https://t.me/${String(channel.username).replace(/^@/, '')}`,
+    'primary'
   )]);
-  rows.push([Markup.button.callback('✅ Tekshirish', 'check_subscription')]);
+  rows.push([actionButton('✅ Tekshirish', 'check_subscription', 'success')]);
   return Markup.inlineKeyboard(rows);
 }
 
@@ -588,30 +619,30 @@ async function notifyNewSubscriber(ctx) {
 
 function broadcastKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('➡️ Rasmsiz davom etish', 'broadcast:no_media')],
-    [Markup.button.callback('❌ Bekor qilish', 'broadcast:cancel')]
+    [actionButton('➡️ Rasmsiz davom etish', 'broadcast:no_media', 'primary')],
+    [actionButton('❌ Bekor qilish', 'broadcast:cancel', 'danger')]
   ]);
 }
 
 function broadcastButtonKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('➕ Yana tugma qo\'shish', 'broadcast:add_button')],
-    [Markup.button.callback('👁 Preview', 'broadcast:preview')],
-    [Markup.button.callback('❌ Bekor qilish', 'broadcast:cancel')]
+    [actionButton('➕ Yana tugma qo\'shish', 'broadcast:add_button', 'success')],
+    [actionButton('👁 Preview', 'broadcast:preview', 'primary')],
+    [actionButton('❌ Bekor qilish', 'broadcast:cancel', 'danger')]
   ]);
 }
 
 function broadcastConfirmKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('📤 Yuborish', 'broadcast:send')],
-    [Markup.button.callback('❌ Bekor qilish', 'broadcast:cancel')]
+    [actionButton('📤 Yuborish', 'broadcast:send', 'success')],
+    [actionButton('❌ Bekor qilish', 'broadcast:cancel', 'danger')]
   ]);
 }
 
 function broadcastColorKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('🔵 Ko\'k', 'broadcast:color:blue'), Markup.button.callback('🟢 Yashil', 'broadcast:color:green')],
-    [Markup.button.callback('🔴 Qizil', 'broadcast:color:red')]
+    [actionButton('🔵 Ko\'k', 'broadcast:color:blue', 'primary'), actionButton('🟢 Yashil', 'broadcast:color:green', 'success')],
+    [actionButton('🔴 Qizil', 'broadcast:color:red', 'danger')]
   ]);
 }
 
@@ -705,7 +736,7 @@ async function adminStats(ctx) {
     replyOptions(adminKeyboard(ctx).reply_markup));
 }
 
-async function handleStart(ctx) {
+async function showMainMenu(ctx) {
   const registration = await ensureUser(ctx);
   if (registration.isNew) {
     try {
@@ -715,8 +746,11 @@ async function handleStart(ctx) {
     }
   }
   if (!(await requiredSubscription(ctx))) return;
-  const payload = ctx.startPayload || '';
   return ctx.reply(welcomeMessage(ctx), replyOptions(welcomeMarkup(ctx) || userKeyboard(ctx).reply_markup));
+}
+
+async function handleStart(ctx) {
+  return showMainMenu(ctx);
 }
 
 bot.use(async (ctx, next) => {
@@ -760,9 +794,9 @@ function formatChannelMode(autoApprove) {
 
 function channelSettingsKeyboard(channel) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback(`🔁 Rejim: ${formatChannelMode(channel.autoApprove)}`, `channel:toggle_mode:${channel.channelId}`)],
-    [Markup.button.callback('📥 Barcha so\'rovlarni bittada tasdiqlash', `channel:bulk_approve:${channel.channelId}`)],
-    [Markup.button.callback('⬅️ Orqaga', 'my_channels')]
+    [actionButton(`🔁 Rejim: ${formatChannelMode(channel.autoApprove)}`, `channel:toggle_mode:${channel.channelId}`, channel.autoApprove ? 'success' : 'secondary')],
+    [actionButton('📥 Barcha so\'rovlarni bittada tasdiqlash', `channel:bulk_approve:${channel.channelId}`, 'primary')],
+    [actionButton('⬅️ Orqaga', 'my_channels', 'secondary')]
   ]);
 }
 
@@ -810,30 +844,60 @@ bot.action('check_subscription', async (ctx) => {
   if (await requiredSubscription(ctx)) return ctx.reply(welcomeMessage(ctx), replyOptions(welcomeMarkup(ctx) || userKeyboard(ctx).reply_markup));
 });
 
-bot.action('my_channels', async (ctx) => {
-  await ctx.answerCbQuery();
+async function renderMyChannels(ctx) {
   const channels = await getUserChannels(ctx.from.id);
   if (!channels.length) {
     return ctx.reply('Sizning kanalingiz yo\'q.\n\n➕ Kanal qo\'shish tugmasini bosing.', Markup.inlineKeyboard([
-      [Markup.button.callback('➕ Kanal qo\'shish', 'add_private_channel_start')],
-      [Markup.button.callback('⬅️ Orqaga', 'main_menu')]
+      [actionButton('➕ Kanal qo\'shish', 'add_private_channel_start', 'success')],
+      [actionButton('⬅️ Orqaga', 'main_menu', 'secondary')]
     ]));
   }
 
-  const rows = channels.map((channel) => [Markup.button.callback(
+  const rows = channels.map((channel) => [actionButton(
     `${channel.channelName || channel.channelId} (${formatChannelMode(channel.autoApprove)})`,
-    `channel:settings:${channel.channelId}`
+    `channel:settings:${channel.channelId}`,
+    channel.autoApprove ? 'success' : 'secondary'
   )]);
-  rows.push([Markup.button.callback('➕ Kanal qo\'shish', 'add_private_channel_start')]);
-  rows.push([Markup.button.callback('⬅️ Orqaga', 'main_menu')]);
+  rows.push([actionButton('➕ Kanal qo\'shish', 'add_private_channel_start', 'success')]);
+  rows.push([actionButton('⬅️ Orqaga', 'main_menu', 'secondary')]);
 
   return ctx.reply('Mening kanallarim', Markup.inlineKeyboard(rows));
+}
+
+bot.action('my_channels', async (ctx) => {
+  await ctx.answerCbQuery();
+  return renderMyChannels(ctx);
 });
+
+bot.command('mychannels', async (ctx) => {
+  return renderMyChannels(ctx);
+});
+
+bot.command('channels', async (ctx) => {
+  return renderMyChannels(ctx);
+});
+
+async function startAddPrivateChannel(ctx) {
+  const botLink = `https://t.me/${config.botUsername}?startgroup=1`;
+  return ctx.reply(
+    'Qaysi kanal yoki guruhga botni admin qilishni xohlaysiz?\n\nQuyidagi tugma orqali admin qilish oynasiga o\'ting va kanal yoki guruhni tanlang.',
+    Markup.inlineKeyboard([
+      [urlButton('🔐 Kanal/guruhga admin qilish', botLink, 'primary')]
+    ])
+  );
+}
 
 bot.action('add_private_channel_start', async (ctx) => {
   await ctx.answerCbQuery();
-  ctx.session = { ...(ctx.session || {}), step: 'private_channel_id' };
-  return ctx.reply('Kanal ID sini yuboring. Masalan: -1001234567890 yoki @kanal_username.\n\nBotni shu kanalga admin qilib qo\'ying, keyin ma\'lumotlar bazasiga saqlanadi.', replyOptions());
+  return startAddPrivateChannel(ctx);
+});
+
+bot.command('addchannel', async (ctx) => {
+  return startAddPrivateChannel(ctx);
+});
+
+bot.command('newchannel', async (ctx) => {
+  return startAddPrivateChannel(ctx);
 });
 
 bot.action(/^channel:settings:(.+)$/, async (ctx) => {
@@ -847,9 +911,7 @@ bot.action(/^channel:settings:(.+)$/, async (ctx) => {
   );
 });
 
-bot.action(/^channel:toggle_mode:(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const channelId = String(ctx.match[1]);
+async function toggleChannelMode(ctx, channelId) {
   const channel = await Channel.findOne({ channelId, ownerId: String(ctx.from.id) });
   if (!channel) return ctx.reply('Bu kanal topilmadi.');
 
@@ -860,11 +922,26 @@ bot.action(/^channel:toggle_mode:(.+)$/, async (ctx) => {
     `Rejim o\'zgartirildi: ${formatChannelMode(channel.autoApprove)}`,
     channelSettingsKeyboard(channel.toObject())
   );
-});
+}
 
-bot.action(/^channel:bulk_approve:(.+)$/, async (ctx) => {
+bot.action(/^channel:toggle_mode:(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const channelId = String(ctx.match[1]);
+  return toggleChannelMode(ctx, channelId);
+});
+
+bot.command('togglemode', async (ctx) => {
+  const [, channelId] = (ctx.message?.text || '').split(/\s+/);
+  if (!channelId) {
+    const channels = await getUserChannels(ctx.from.id);
+    if (!channels.length) return ctx.reply('Avval kanal qo\'shing. /addchannel');
+    const list = channels.map((channel) => `${channel.channelId} - ${channel.channelName || channel.channelId}`).join('\n');
+    return ctx.reply(`Rejimni o\'zgartirmoqchi bo\'lgan kanal ID sini yozing:\n\n${list}\n\nMasalan: /togglemode -1001234567890`, replyOptions());
+  }
+  return toggleChannelMode(ctx, String(channelId));
+});
+
+async function bulkApproveChannelRequests(ctx, channelId) {
   const channel = await Channel.findOne({ channelId, ownerId: String(ctx.from.id) });
   if (!channel) return ctx.reply('Bu kanal topilmadi.');
 
@@ -879,11 +956,40 @@ bot.action(/^channel:bulk_approve:(.+)$/, async (ctx) => {
 
   pendingJoinRequests.delete(channelId);
   return ctx.reply(`${approved} ta so\'rov tasdiqlandi.`, channelSettingsKeyboard(channel.toObject()));
+}
+
+bot.action(/^channel:bulk_approve:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const channelId = String(ctx.match[1]);
+  return bulkApproveChannelRequests(ctx, channelId);
+});
+
+bot.command('bulkapprove', async (ctx) => {
+  const [, channelId] = (ctx.message?.text || '').split(/\s+/);
+  if (!channelId) {
+    const channels = await getUserChannels(ctx.from.id);
+    if (!channels.length) return ctx.reply('Avval kanal qo\'shing. /addchannel');
+    const list = channels.map((channel) => `${channel.channelId} - ${channel.channelName || channel.channelId}`).join('\n');
+    return ctx.reply(`Tasdiqlamoqchi bo\'lgan kanal ID sini yozing:\n\n${list}\n\nMasalan: /bulkapprove -1001234567890`, replyOptions());
+  }
+  return bulkApproveChannelRequests(ctx, String(channelId));
 });
 
 bot.action('help', async (ctx) => {
   await ctx.answerCbQuery();
-  return ctx.reply(configuredMessage('help', ctx), replyOptions());
+  return ctx.reply(getHelpText(ctx), replyOptions());
+});
+
+bot.command('help', async (ctx) => {
+  return ctx.reply(getHelpText(ctx), replyOptions());
+});
+
+bot.command('menu', async (ctx) => {
+  return showMainMenu(ctx);
+});
+
+bot.command('start', async (ctx) => {
+  return showMainMenu(ctx);
 });
 
 bot.action('music:search', async (ctx) => {
@@ -907,9 +1013,10 @@ async function replyMusicResults(ctx, query) {
     ctx.session = { step: 'music_pick', musicResults: results };
     const rows = [];
     for (let index = 0; index < results.length; index += 5) {
-      rows.push(results.slice(index, index + 5).map((result, offset) => Markup.button.callback(
+      rows.push(results.slice(index, index + 5).map((result, offset) => actionButton(
         String(index + offset + 1),
-        `music:pick:${index + offset}`
+        `music:pick:${index + offset}`,
+        'primary'
       )));
     }
     const list = results.map((result, index) => {
@@ -1058,11 +1165,13 @@ bot.action('admin:admins', async (ctx) => {
   const text = admins.length
     ? admins.map((admin, index) => `${index + 1}. ${admin.nickname || admin.username || admin.telegramId} - ${permissionsLabel(admin.permissions)}`).join('\n')
     : 'Hali qo\'shimcha adminlar yo\'q.';
-  const rows = admins.map((admin) => [Markup.button.callback(
-    `⚙️ ${admin.nickname || admin.username || admin.telegramId}`, `admin:manage:${admin.telegramId}`
+  const rows = admins.map((admin) => [actionButton(
+    `⚙️ ${admin.nickname || admin.username || admin.telegramId}`,
+    `admin:manage:${admin.telegramId}`,
+    'secondary'
   )]);
-  rows.push([Markup.button.callback('➕ Admin qo\'shish', 'admin:add')]);
-  rows.push([Markup.button.callback('⬅️ Admin panel', 'admin:panel')]);
+  rows.push([actionButton('➕ Admin qo\'shish', 'admin:add', 'success')]);
+  rows.push([actionButton('⬅️ Admin panel', 'admin:panel', 'primary')]);
   return ctx.reply(`👥 Adminlar\n\n${text}`, Markup.inlineKeyboard(rows));
 });
 
@@ -1245,26 +1354,9 @@ bot.on('text', async (ctx) => {
     return ctx.reply('Admin panel', adminKeyboard());
   }
   if (step === 'private_channel_id') {
-    try {
-      const resolvedChannel = await ensureBotIsAdminForChannel(ctx, normalizeChannel(value));
-      const existing = await Channel.findOne({ channelId: String(resolvedChannel.id), ownerId: String(ctx.from.id) });
-      if (existing) {
-        reset(ctx);
-        return ctx.reply('Bu kanal allaqachon ro\'yxatga qo\'shilgan.', replyOptions(welcomeMarkup(ctx) || userKeyboard(ctx).reply_markup));
-      }
-
-      const savedChannel = await Channel.create({
-        channelId: String(resolvedChannel.id),
-        ownerId: String(ctx.from.id),
-        channelName: resolvedChannel.title,
-        autoApprove: true
-      });
-      reset(ctx);
-      return ctx.reply(`Kanal saqlandi: ${savedChannel.channelName}\nRejim: Avtomatik`, replyOptions(welcomeMarkup(ctx) || userKeyboard(ctx).reply_markup));
-    } catch (error) {
-      reset(ctx);
-      return ctx.reply(error.message || 'Kanalni qo\'shishda xatolik yuz berdi.');
-    }
+    return ctx.reply('Iltimos, quyidagi tugma yordamida kanal yoki guruhga admin qiling.', Markup.inlineKeyboard([
+      [urlButton('🔐 Kanal/guruhga admin qilish', `https://t.me/${config.botUsername}?startgroup=1`, 'primary')]
+    ]));
   }
   if (step === 'broadcast_caption') {
     ctx.session.broadcast.caption = rawText;
@@ -1319,6 +1411,30 @@ bot.on('text', async (ctx) => {
 bot.on('callback_query', async (ctx) => {
   await safeAnswerCbQuery(ctx);
   reset(ctx);
+});
+
+bot.on('my_chat_member', async (ctx) => {
+  const botInfo = await ctx.telegram.getMe();
+  const status = ctx.myChatMember?.new_chat_member || ctx.update?.my_chat_member?.new_chat_member;
+  if (!status || Number(status.user.id) !== Number(botInfo.id)) return;
+  const chat = ctx.chat || ctx.update?.my_chat_member?.chat;
+  if (!chat || !['group', 'supergroup', 'channel'].includes(chat.type)) return;
+
+  const member = await ctx.telegram.getChatMember(chat.id, botInfo.id).catch(() => null);
+  if (!member || !['administrator', 'creator'].includes(member.status)) return;
+
+  const senderId = Number(ctx.from?.id || ctx.update?.my_chat_member?.from?.id || 0);
+  if (!senderId) return;
+
+  const existing = await Channel.findOne({ channelId: String(chat.id), ownerId: String(senderId) });
+  if (existing) return;
+
+  await Channel.create({
+    channelId: String(chat.id),
+    ownerId: String(senderId),
+    channelName: chat.title || chat.username || 'Noma\'lum chat',
+    autoApprove: true
+  });
 });
 
 bot.on('chat_join_request', async (ctx) => {
