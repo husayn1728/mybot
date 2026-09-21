@@ -151,13 +151,11 @@ function permissionsLabel(permissions) {
 }
 
 function actionButton(text, callbackData, style = 'secondary') {
-  void style;
-  return { text, callback_data: callbackData };
+  return { text, callback_data: callbackData, style };
 }
 
 function urlButton(text, url, style = 'primary') {
-  void style;
-  return { text, url };
+  return { text, url, style };
 }
 
 function adminManagementKeyboard(admin) {
@@ -500,11 +498,15 @@ function welcomeMessage(ctx) {
 
 function welcomeMarkup(ctx) {
   const rows = [
-    [{ text: '🎵 Musiqa qidirish', callback_data: 'music:search' }],
-    [{ text: '❓ Yordam', callback_data: 'help' }],
-    [{ text: '🔒 Mening kanallarim', callback_data: 'my_channels' }]
+    [
+      { text: '🎵 Musiqa qidirish', callback_data: 'music:search', style: 'secondary' },
+      { text: '❓ Yordam', callback_data: 'help', style: 'danger' }
+    ],
+    [
+      { text: '🔒 Mening kanallarim', callback_data: 'my_channels', style: 'primary' },
+      ...(isAdmin(ctx) ? [{ text: '🛠 Admin panel', callback_data: 'admin:panel', style: 'secondary' }] : [])
+    ]
   ];
-  if (isAdmin(ctx)) rows.push([{ text: '🛠 Admin panel', callback_data: 'admin:panel' }]);
   return Markup.inlineKeyboard(rows).reply_markup;
 }
 
@@ -881,11 +883,25 @@ bot.command('channels', async (ctx) => {
 
 async function startAddPrivateChannel(ctx) {
   const botLink = `https://t.me/${config.botUsername}?startgroup=1`;
+  const existingChannels = await getUserChannels(ctx.from.id);
+  const rows = [];
+
+  if (existingChannels.length) {
+    rows.push(...existingChannels.map((channel) => [actionButton(
+      `📌 ${channel.channelName || channel.channelId}`,
+      `channel:settings:${channel.channelId}`,
+      channel.autoApprove ? 'success' : 'secondary'
+    )]));
+  }
+
+  rows.push([urlButton('🔐 Kanal/guruhga admin qilish', botLink, 'primary')]);
+  rows.push([actionButton('⬅️ Orqaga', 'main_menu', 'secondary')]);
+
   return ctx.reply(
-    'Qaysi kanal yoki guruhga botni admin qilishni xohlaysiz?\n\nQuyidagi tugma orqali admin qilish oynasiga o\'ting va kanal yoki guruhni tanlang.',
-    Markup.inlineKeyboard([
-      [urlButton('🔐 Kanal/guruhga admin qilish', botLink, 'primary')]
-    ])
+    existingChannels.length
+      ? 'Sizning admin bo\'lgan kanallar/guruhlar va yangi kanal qo\'shish:'
+      : 'Qaysi kanal yoki guruhga botni admin qilishni xohlaysiz?\n\nQuyidagi tugma orqali admin qilish oynasiga o\'ting va kanal yoki guruhni tanlang.',
+    Markup.inlineKeyboard(rows)
   );
 }
 
@@ -975,6 +991,11 @@ bot.command('bulkapprove', async (ctx) => {
     return ctx.reply(`Tasdiqlamoqchi bo\'lgan kanal ID sini yozing:\n\n${list}\n\nMasalan: /bulkapprove -1001234567890`, replyOptions());
   }
   return bulkApproveChannelRequests(ctx, String(channelId));
+});
+
+bot.action('main_menu', async (ctx) => {
+  await ctx.answerCbQuery();
+  return showMainMenu(ctx);
 });
 
 bot.action('help', async (ctx) => {
@@ -1499,4 +1520,4 @@ if (require.main === module) {
 }
 
 process.once('SIGINT', async () => { bot.stop('SIGINT'); await mongoose.disconnect(); });
-process.once('SIGTERM', async () => { bot.stop('SIGTERM'); await mongoose.disconnect(); }); 
+process.once('SIGTERM', async () => { bot.stop('SIGTERM'); await mongoose.disconnect(); });   
