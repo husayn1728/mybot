@@ -84,7 +84,10 @@ app.get('/health', (req, res) => res.status(200).json({
   ok: true,
   mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
 }));
-app.listen(port, '0.0.0.0', () => console.log(`Express server ${port} portda ishlayapti.`));
+
+if (require.main === module) {
+  app.listen(port, '0.0.0.0', () => console.log(`Express server ${port} portda ishlayapti.`));
+}
 
 const bot = new Telegraf(config.botToken);
 const ADMIN_USERNAME = config.admin.username;
@@ -1529,6 +1532,8 @@ async function safeAnswerCbQuery(ctx) {
 module.exports = {
   buildYoutubeSearchUrl,
   normalizeYouTubeSearchResult,
+  isSupportedMediaUrl,
+  youtubeVideoFormatFilter,
   searchMusic,
   downloadMusicMp3,
   formatMusicDuration
