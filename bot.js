@@ -33,21 +33,6 @@ const adminSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 }, { versionKey: false });
 
-const movieSchema = new mongoose.Schema({
-  code: { type: String, unique: true, required: true, index: true },
-  title: { type: String, required: true },
-  genre: { type: String, required: true },
-  language: { type: String, required: true },
-  videoFileId: { type: String, required: true },
-  promoFileId: { type: String, required: true },
-  promoType: { type: String, enum: ['photo', 'video'], required: true },
-  views: { type: Number, default: 0 },
-  viewDays: { type: mongoose.Schema.Types.Mixed, default: {} },
-  promoMessageId: { type: Number, default: null },
-  promoChannelId: { type: Number, default: null },
-  createdAt: { type: Date, default: Date.now }
-}, { versionKey: false });
-
 const sessionSchema = new mongoose.Schema({
   key: { type: String, unique: true, required: true },
   data: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -78,7 +63,6 @@ const botConfigSchema = new mongoose.Schema({
 
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 const Admin = mongoose.models.BotAdmin || mongoose.model('BotAdmin', adminSchema);
-const Movie = mongoose.models.Movie || mongoose.model('Movie', movieSchema);
 const BotConfig = mongoose.models.BotConfig || mongoose.model('BotConfig', botConfigSchema);
 const Session = mongoose.models.BotSession || mongoose.model('BotSession', sessionSchema);
 const Broadcast = mongoose.models.Broadcast || mongoose.model('Broadcast', broadcastSchema);
@@ -86,7 +70,7 @@ const AdminLog = mongoose.models.AdminLog || mongoose.model('AdminLog', adminLog
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
-app.get('/', (req, res) => res.send('Movie bot ishlamoqda...'));
+app.get('/', (req, res) => res.send('Music bot ishlamoqda...'));
 app.get('/health', (req, res) => res.status(200).json({
   ok: true,
   mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
@@ -96,9 +80,9 @@ app.listen(port, '0.0.0.0', () => console.log(`Express server ${port} portda ish
 const bot = new Telegraf(config.botToken);
 const ADMIN_USERNAME = config.admin.username;
 const ADMIN_TG_ID = config.admin.telegramId;
-const adminPermissions = ['movies', 'broadcast', 'stats', 'settings', 'admins'];
+const adminPermissions = ['broadcast', 'stats', 'settings', 'admins'];
 const adminRegistry = new Map();
-const data = { settings: { requiredChannels: [], movieChannel: null } };
+const data = { settings: { requiredChannels: [] } };
 const premiumEmojis = {
   welcome: '<tg-emoji emoji-id="5199785165735367039">⚡️</tg-emoji>',
   bot: '<tg-emoji emoji-id="5323359973365784232">🤖</tg-emoji>',
@@ -107,11 +91,11 @@ const premiumEmojis = {
   web: '<tg-emoji emoji-id="5231482153228835967">🌐</tg-emoji>'
 };
 const defaultMessages = {
-  welcome: `${premiumEmojis.welcome} Assalomu alaykum {nickname}\n\n${premiumEmojis.bot} @{bot_username} orqali siz o\'zingizga yoqqan kinoni topishingiz mumkin\n${premiumEmojis.confirm} Shunchaki kino kodini yuboring va kinoni oling`,
+  welcome: `${premiumEmojis.welcome} Assalomu alaykum {nickname}\n\n${premiumEmojis.bot} @{bot_username} orqali siz musiqani tezda topishingiz mumkin\n${premiumEmojis.confirm} Musiqa nomi yoki artistini yuboring va natijalarni tanlang`,
   subscriptionRequired: `${premiumEmojis.warning} Botdan foydalanish uchun quyidagi kanallarga obuna bo\'ling`,
-  invalidCode: '<tg-emoji emoji-id="5212992409213872592">❌</tg-emoji> Kino kodi xato. Boshqa kino kodini yuboring.',
-  nonNumericCode: 'Kino kodi faqat raqam bo\'lishi kerak. Qayta yuboring.',
-  help: `${premiumEmojis.web} Kino kodini yuboring. Masalan: 1001. Bot sizga shu koddagi kinoni yuboradi.`
+  invalidCode: '<tg-emoji emoji-id="5212992409213872592">❌</tg-emoji> Noto\'g\'ri kirish. Musiqa nomini yoki artistini yuboring.',
+  nonNumericCode: 'Musiqa qidirishda faqat matn kiriting. Qayta yuboring.',
+  help: `${premiumEmojis.web} Musiqa qidirish uchun /music yoki "🎵 Musiqa qidirish" tugmasini bosing.\n\nYordam olish uchun "❓ Yordam" tugmasini tanlang.`
 };
 function isAdmin(ctx) {
   const telegramId = Number(ctx.from?.id);
@@ -131,7 +115,7 @@ function hasPermission(ctx, permission) {
 }
 
 function permissionsLabel(permissions) {
-  const labels = { movies: 'Kinolar', broadcast: 'Xabar yuborish', stats: 'Statistika', settings: 'Sozlamalar', admins: 'Adminlar' };
+  const labels = { broadcast: 'Xabar yuborish', stats: 'Statistika', settings: 'Sozlamalar', admins: 'Adminlar' };
   return permissions.map((permission) => labels[permission] || permission).join(', ') || 'Huquq berilmagan';
 }
 
@@ -233,6 +217,20 @@ function buildYoutubeSearchUrl(query, key) {
   return `https://www.googleapis.com/youtube/v3/search?${params.toString()}`;
 }
 
+function isSupportedMediaUrl(value) {
+  try {
+    const url = new URL(value);
+    return /(youtube\.com|youtu\.be|instagram\.com|tiktok\.com|twitter\.com|x\.com|vimeo\.com|facebook\.com|soundcloud\.com|spotify\.com|vk\.com)/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function youtubeVideoFormatFilter(format = 'best') {
+  const normalized = String(format || 'best').toLowerCase();
+  return normalized === 'audio' ? 'bestaudio/best' : 'mp4/bestvideo+bestaudio';
+}
+
 function buildYoutubeVideosUrl(ids, key) {
   const params = new URLSearchParams({
     part: 'contentDetails',
@@ -317,7 +315,7 @@ function resolveFfmpegLocation() {
 }
 
 async function downloadMusicMp3(result) {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kino-music-'));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'music-download-'));
   const outputPath = path.join(tempDir, 'music.mp3');
 
   try {
@@ -325,7 +323,7 @@ async function downloadMusicMp3(result) {
     const title = result?.title || 'Noma\'lum musiqa';
     const artist = result?.artist || 'Noma\'lum artist';
 
-        if (!isYoutubeUrl(rawUrl)) {
+    if (!isYoutubeUrl(rawUrl)) {
       throw new Error('Faqat YouTube musiqalari qo\'llab-quvvatlanadi.');
     }
 
@@ -376,7 +374,7 @@ async function downloadMusicMp3(result) {
       throw new Error('Musiqa fayli yetarli emas yoki buzilgan.');
     }
 
-    const tagResult = NodeID3.write({ title, artist, album: 'KinoManiaBot' }, outputPath);
+    const tagResult = NodeID3.write({ title, artist, album: 'MusicBot' }, outputPath);
     if (tagResult !== true) {
       throw new Error('MP3 metadata yozilmadi.');
     }
@@ -400,19 +398,14 @@ function adminKeyboard() {
   if (can('stats')) rows.push([
     Markup.button.callback('📊 Statistika', 'admin:stats')
   ]);
-  if (can('movies')) rows.push([
-    Markup.button.callback('🎬 Kino joylash', 'admin:add_movie'),
-    Markup.button.callback('🔎 Kino kodini qidirish', 'admin:find_movie')
-  ]);
   if (can('broadcast')) rows.push([
     Markup.button.callback('📣 Xabar yuborish', 'admin:broadcast')
   ]);
   if (can('settings')) rows.push([
-    Markup.button.callback('📣 Kino kanalini sozlash', 'admin:movie_channel'),
-    Markup.button.callback('📢 Obuna kanalini qo\'shish', 'admin:subscription')
+    Markup.button.callback('📢 Obuna kanalini qo\'shish', 'admin:subscription'),
+    Markup.button.callback('📋 Obuna kanallari', 'admin:required_list')
   ]);
   if (can('settings')) rows.push([
-    Markup.button.callback('📋 Obuna kanallari', 'admin:required_list'),
     Markup.button.callback('❌ Obunani o\'chirish', 'admin:subscription_off')
   ]);
   if (isOwner(ctx || {})) rows.push([Markup.button.callback('👥 Adminlarni boshqarish', 'admin:admins')]);
@@ -464,16 +457,10 @@ function welcomeMessage(ctx) {
 }
 
 function welcomeMarkup(ctx) {
-  const channel = data.settings.movieChannel;
-  const rows = [];
-  if (channel?.username) rows.push([{
-    text: '🎥 Kino kodlari',
-    url: `https://t.me/${String(channel.username).replace(/^@/, '')}`,
-    style: 'primary'
-  }]);
-  rows.push([{ text: '🎵 Musiqa qidirish', callback_data: 'music:search', style: 'success' }]);
-  rows.push([{ text: '🆕 So\'nggi kinolar', callback_data: 'latest_movies', style: 'danger' }]);
-  rows.push([{ text: '❓ Yordam', callback_data: 'help', style: 'success' }]);
+  const rows = [
+    [{ text: '🎵 Musiqa qidirish', callback_data: 'music:search', style: 'success' }],
+    [{ text: '❓ Yordam', callback_data: 'help', style: 'success' }]
+  ];
   if (isAdmin(ctx)) rows.push([{ text: '🛠 Admin panel', callback_data: 'admin:panel', style: 'success' }]);
   return Markup.inlineKeyboard(rows).reply_markup;
 }
@@ -535,7 +522,7 @@ async function checkFullAdmin(ctx, username) {
 async function saveSettings() {
   await BotConfig.findOneAndUpdate(
     { configKey: 'main_config' },
-    { $set: { channels: data.settings.requiredChannels, settings: { movieChannel: data.settings.movieChannel, messages: data.settings.messages } } },
+    { $set: { channels: data.settings.requiredChannels, settings: { messages: data.settings.messages } } },
     { upsert: true }
   );
 }
@@ -551,7 +538,6 @@ async function hydrateSettings() {
     configDocument = configDocument.toObject();
   }
   data.settings.requiredChannels = configDocument.channels || [];
-  data.settings.movieChannel = configDocument.settings?.movieChannel || null;
   data.settings.messages = { ...defaultMessages };
 }
 
@@ -587,88 +573,6 @@ async function notifyNewSubscriber(ctx) {
     `Botga yangi obunachi qo'shildi: ${profileLink}\nObunachilar soni: ${count}`,
     { parse_mode: 'HTML', protect_content: false }
   );
-}
-
-function movieCaption(movie, views, includeViews = true) {
-  const genre = String(movie.genre || '').trim();
-  const language = String(movie.language || '').trim();
-  const languageFlag = { "o'zbek": '🇺🇿', uzbek: '🇺🇿', rus: '🇷🇺', russian: '🇷🇺', ingliz: '🇬🇧', english: '🇬🇧' }[language.toLowerCase()] || '';
-  return `<b><tg-emoji emoji-id="5375464961822695044">🎬</tg-emoji> ${movie.title}</b>\n\n` +
-    `<tg-emoji emoji-id="5375099322666859339">🖥</tg-emoji> Kino kodi: <code>${movie.code}</code>\n` +
-    `<tg-emoji emoji-id="5359441070201513074">🎭</tg-emoji> Janri: ${genre.startsWith('#') ? genre : `#${genre}`}\n` +
-    `<tg-emoji emoji-id="5188381825701021648">🌐</tg-emoji> Tili: ${language}${languageFlag ? ` ${languageFlag}` : ''}\n` +
-    `<tg-emoji emoji-id="4916086774649848789">🔗</tg-emoji> Bot: @${config.botUsername}`;
-}
-
-function movieLink(code) {
-  return `https://t.me/${config.botUsername}?start=movie_${encodeURIComponent(code)}`;
-}
-
-
-async function sendMovie(ctx, code) {
-  const normalizedCode = String(code || '').trim();
-  const dayKey = new Date().toISOString().slice(0, 10);
-  const movie = await Movie.findOneAndUpdate(
-    { code: normalizedCode },
-    { $inc: { views: 1, [`viewDays.${dayKey}`]: 1 } },
-    { returnDocument: 'after' }
-  ).lean();
-  if (!movie) return ctx.reply(configuredMessage('invalidCode', ctx, { code: normalizedCode }), replyOptions());
-  const channel = data.settings.movieChannel;
-  const buttonRows = channel?.username
-    ? [[Markup.button.url('🎥 Kino kodlari kanali', `https://t.me/${String(channel.username).replace(/^@/, '')}`)]]
-    : [];
-  const statusMessage = await ctx.reply('⏳ Kino tayyorlanmoqda...');
-  let sentMovie;
-  try {
-    sentMovie = await ctx.telegram.sendVideo(ctx.from.id, movie.videoFileId, {
-      caption: movieCaption(movie, movie.views),
-      parse_mode: 'HTML',
-      reply_markup: Markup.inlineKeyboard(buttonRows).reply_markup,
-      protect_content: shouldProtectContent(ctx.from.id)
-    });
-  } finally {
-    try { await ctx.telegram.deleteMessage(ctx.from.id, statusMessage.message_id); } catch {}
-  }
-  return sentMovie;
-}
-
-async function publishMovieAdvertisement(movie, replaceMedia = false) {
-  const channel = data.settings.movieChannel;
-  if (!channel?.id) throw new Error('Kino reklama kanali sozlanmagan.');
-  const replyMarkup = Markup.inlineKeyboard([[Markup.button.url('▶️ Kinoni ko\'rish', movieLink(movie.code))]]).reply_markup;
-  const caption = movieCaption(movie, 0, false);
-  if (movie.promoChannelId && movie.promoMessageId && !replaceMedia && movie.promoChannelId === channel.id) {
-    try {
-      return await bot.telegram.editMessageCaption(channel.id, movie.promoMessageId, undefined, caption, {
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup
-      });
-    } catch (error) {
-      console.warn('Movie advertisement edit failed, replacing it:', error.response?.description || error.message);
-    }
-  }
-  if (movie.promoChannelId && movie.promoMessageId) {
-    try {
-      await bot.telegram.deleteMessage(movie.promoChannelId, movie.promoMessageId);
-    } catch (error) {
-      console.warn('Old movie advertisement delete failed:', error.response?.description || error.message);
-    }
-  }
-  const extra = {
-    caption,
-    parse_mode: 'HTML',
-    reply_markup: replyMarkup,
-    protect_content: true
-  };
-  const message = movie.promoType === 'photo'
-    ? await bot.telegram.sendPhoto(channel.id, movie.promoFileId, extra)
-    : await bot.telegram.sendVideo(channel.id, movie.promoFileId, extra);
-  await Movie.updateOne(
-    { _id: movie._id },
-    { $set: { promoChannelId: channel.id, promoMessageId: message.message_id } }
-  );
-  return message;
 }
 
 function broadcastKeyboard() {
@@ -778,51 +682,16 @@ async function sendBroadcast(ctx) {
 
 async function adminStats(ctx) {
   const now = Date.now();
-  const [subscribers, activeUsers, movies, views, popular, broadcasts] = await Promise.all([
+  const [subscribers, activeUsers, broadcasts] = await Promise.all([
     User.countDocuments(),
     User.countDocuments({ lastActiveAt: { $gte: new Date(now - 24 * 60 * 60 * 1000) } }),
-    Movie.countDocuments(),
-    Movie.aggregate([{ $group: { _id: null, total: { $sum: '$views' } } }]),
-    Movie.find({}, { title: 1, code: 1, views: 1 }).sort({ views: -1 }).limit(5).lean(),
     Broadcast.aggregate([{ $group: { _id: null, total: { $sum: 1 }, sent: { $sum: '$sent' }, failed: { $sum: '$failed' }, blocked: { $sum: '$blocked' } } }])
   ]);
-  const popularText = popular.length
-    ? popular.map((movie, index) => `${index + 1}. ${movie.title} (${movie.code}) - ${movie.views || 0}`).join('\n')
-    : 'Hali kino ko\'rilmagan.';
   const broadcastStats = broadcasts[0] || { total: 0, sent: 0, failed: 0, blocked: 0 };
   return ctx.reply(`<tg-emoji emoji-id="5244825199278311613">📊</tg-emoji> Bot statistikasi\n\n` +
-    `<blockquote>Obunachilar: ${subscribers}\nFaol userlar (24 soat): ${activeUsers}\nJoylangan kinolar: ${movies}\nUmumiy ko'rilgan kinolar: ${views[0]?.total || 0}</blockquote>\n\n` +
-    `<blockquote>Eng ko'p ko'rilganlar:\n${popularText}</blockquote>\n\n` +
+    `<blockquote>Obunachilar: ${subscribers}\nFaol userlar (24 soat): ${activeUsers}</blockquote>\n\n` +
     `<blockquote>Broadcastlar: ${broadcastStats.total}\nYetib borgan: ${broadcastStats.sent}\nBloklagan: ${broadcastStats.blocked}\nXatolik: ${broadcastStats.failed}</blockquote>`,
     replyOptions(adminKeyboard(ctx).reply_markup));
-}
-
-function movieAdminKeyboard(code) {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('✏️ Ma\'lumotlarni o\'zgartirish', `admin:edit_movie:${code}`)],
-    [Markup.button.callback('🗑 Kinoni o\'chirish', `admin:delete_movie:${code}`)],
-    [Markup.button.callback('🛠 Admin panel', 'admin:panel')]
-  ]);
-}
-
-function movieAdminText(movie) {
-  return `${movie.title}\n\n` +
-    `Kino kodi: ${movie.code}\n` +
-    `Janri: ${movie.genre}\n` +
-    `Tili: ${movie.language}\n` +
-    `Ko'rilgan: ${movie.views || 0} marta`;
-}
-
-function movieEditKeyboard(code) {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('📝 Nomini o\'zgartirish', `admin:edit_field:title:${code}`)],
-    [Markup.button.callback('🔢 Kodini o\'zgartirish', `admin:edit_field:code:${code}`)],
-    [Markup.button.callback('🎭 Janrini o\'zgartirish', `admin:edit_field:genre:${code}`)],
-    [Markup.button.callback('🌐 Tilini o\'zgartirish', `admin:edit_field:language:${code}`)],
-    [Markup.button.callback('🎥 Videosini o\'zgartirish', `admin:edit_field:video:${code}`)],
-    [Markup.button.callback('🖼 Reklama mediasini o\'zgartirish', `admin:edit_field:promo:${code}`)],
-    [Markup.button.callback('⬅️ Orqaga', `admin:movie:${code}`)]
-  ]);
 }
 
 async function handleStart(ctx) {
@@ -836,7 +705,6 @@ async function handleStart(ctx) {
   }
   if (!(await requiredSubscription(ctx))) return;
   const payload = ctx.startPayload || '';
-  if (payload.startsWith('movie_')) return sendMovie(ctx, payload.slice(6));
   return ctx.reply(welcomeMessage(ctx), replyOptions(welcomeMarkup(ctx) || userKeyboard(ctx).reply_markup));
 }
 
@@ -993,28 +861,11 @@ bot.action(/^music:pick:(\d+)$/, async (ctx) => {
   return ctx.reply('✅ Musiqa yuborildi.');
 });
 
-bot.action('latest_movies', async (ctx) => {
-  await ctx.answerCbQuery();
-  const movies = await Movie.find({}, { title: 1, code: 1 })
-    .sort({ createdAt: -1 }).limit(10).lean();
-  if (!movies.length) return ctx.reply('Hali kino joylanmagan.');
-  const buttons = movies.map((movie) => [Markup.button.callback(
-    `🎬 ${movie.title} (${movie.code})`, `latest:movie:${movie.code}`
-  )]);
-  return ctx.reply('<tg-emoji emoji-id="5233588456730427459">🆕</tg-emoji> So\'nggi kinolar:', replyOptions(Markup.inlineKeyboard(buttons).reply_markup));
-});
-
-bot.action(/^latest:movie:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  return sendMovie(ctx, ctx.match[1]);
-});
-
 function permissionForCallback(callbackData) {
   if (callbackData === 'admin:stats') return 'stats';
   if (callbackData === 'admin:admins' || callbackData === 'admin:add' || callbackData === 'admin:logs' || callbackData.startsWith('admin:manage:') || callbackData.startsWith('admin:perm:') || callbackData.startsWith('admin:remove:')) return 'admins';
   if (callbackData.startsWith('broadcast:')) return 'broadcast';
-  if (/^admin:(?:add_movie|find_movie|movie:|edit_movie:|edit_field:|delete_movie:|delete_confirm:)/.test(callbackData)) return 'movies';
-  if (/^admin:(?:movie_channel|subscription|required_list|subscription_off)/.test(callbackData)) return 'settings';
+  if (/^admin:(?:subscription|required_list|subscription_off)/.test(callbackData)) return 'settings';
   return null;
 }
 
@@ -1040,21 +891,6 @@ bot.command('music', async (ctx) => {
   }
   reset(ctx);
   return replyMusicResults(ctx, query);
-});
-
-bot.command('kino', async (ctx) => {
-  const code = String(ctx.message?.text || '')
-    .replace(/^\/kino(?:@\w+)?\s*/i, '')
-    .trim();
-  if (!code) {
-    ctx.session = { step: 'movie_search' };
-    return ctx.reply('🎬 Kino kodini yuboring (masalan: 1001):', replyOptions());
-  }
-  if (!/^\d+$/.test(code)) {
-    return ctx.reply(configuredMessage('nonNumericCode', ctx, { code }), replyOptions());
-  }
-  reset(ctx);
-  return sendMovie(ctx, code);
 });
 
 bot.action('admin:stats', async (ctx) => {
@@ -1153,13 +989,6 @@ bot.action(/^admin:remove:(\d+)$/, async (ctx) => {
   return ctx.reply('Admin o\'chirildi.', adminKeyboard(ctx));
 });
 
-bot.action('admin:find_movie', async (ctx) => {
-  await ctx.answerCbQuery();
-  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
-  ctx.session = { step: 'find_movie', adminPanelActive: true };
-  return ctx.reply('<tg-emoji emoji-id="5274099962655816924">❗️</tg-emoji> Tahrirlash yoki o\'chirish uchun kino kodini yuboring:', replyOptions());
-});
-
 bot.action('admin:broadcast', async (ctx) => {
   await ctx.answerCbQuery();
   if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
@@ -1217,66 +1046,6 @@ bot.action('broadcast:cancel', async (ctx) => {
   return ctx.reply('Xabar yuborish bekor qilindi.', adminKeyboard(ctx));
 });
 
-bot.action(/^admin:movie:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
-  const movie = await Movie.findOne({ code: ctx.match[1] }).lean();
-  if (!movie) return ctx.reply('Kino topilmadi.', adminKeyboard(ctx));
-  return ctx.reply(movieAdminText(movie), movieAdminKeyboard(movie.code));
-});
-
-bot.action(/^admin:edit_movie:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
-  const movie = await Movie.findOne({ code: ctx.match[1] }).lean();
-  if (!movie) return ctx.reply('Kino topilmadi.', adminKeyboard(ctx));
-  return ctx.reply('Qaysi ma\'lumotni o\'zgartirasiz?', movieEditKeyboard(movie.code));
-});
-
-bot.action(/^admin:edit_field:(title|code|genre|language|video|promo):(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
-  const [, field, code] = ctx.match;
-  if (!await Movie.exists({ code })) return ctx.reply('Kino topilmadi.', adminKeyboard(ctx));
-  ctx.session = { step: `edit_movie_${field}`, movieCode: code, adminPanelActive: true };
-  const prompts = {
-    title: 'Yangi kino nomini yuboring:',
-    code: 'Yangi kino kodini yuboring:',
-    genre: 'Yangi kino janrini yuboring:',
-    language: 'Yangi kino tilini yuboring:',
-    video: 'Yangi kino videosini yuboring:',
-    promo: 'Yangi reklama videosi yoki rasmini yuboring:'
-  };
-  return ctx.reply(prompts[field]);
-});
-
-bot.action(/^admin:delete_movie:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
-  const movie = await Movie.findOne({ code: ctx.match[1] }).lean();
-  if (!movie) return ctx.reply('Kino topilmadi.', adminKeyboard(ctx));
-  return ctx.reply(`${movie.title} filmini o\'chirishni tasdiqlaysizmi?`, Markup.inlineKeyboard([
-    [Markup.button.callback('✅ Ha, o\'chirish', `admin:delete_confirm:${movie.code}`)],
-    [Markup.button.callback('❌ Bekor qilish', `admin:movie:${movie.code}`)]
-  ]));
-});
-
-bot.action(/^admin:delete_confirm:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
-  const result = await Movie.deleteOne({ code: ctx.match[1] });
-  if (result.deletedCount) await logAdminAction(ctx, 'movie_deleted', ctx.match[1]);
-  reset(ctx);
-  return ctx.reply(result.deletedCount ? 'Kino o\'chirildi.' : 'Kino topilmadi.', adminKeyboard(ctx));
-});
-
-bot.action('admin:movie_channel', async (ctx) => {
-  await ctx.answerCbQuery();
-  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
-  ctx.session = { step: 'movie_channel', adminPanelActive: true };
-  return ctx.reply('<tg-emoji emoji-id="5352629724516458059">✈️</tg-emoji> Kino reklamasi tashlanadigan kanal username sini yuboring, masalan: @kino_kanal', replyOptions());
-});
-
 bot.action('admin:subscription', async (ctx) => {
   await ctx.answerCbQuery();
   if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
@@ -1300,54 +1069,15 @@ bot.action('admin:subscription_off', async (ctx) => {
   return ctx.reply('Majburiy obuna o\'chirildi.', adminKeyboard());
 });
 
-bot.action('admin:add_movie', async (ctx) => {
-  await ctx.answerCbQuery();
-  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
-  if (!data.settings.movieChannel) return ctx.reply('Avval kino reklama kanalini qo\'shing va botni unga admin qiling.', adminKeyboard());
-  ctx.session = { step: 'movie_title', adminPanelActive: true };
-  return ctx.reply('<tg-emoji emoji-id="5375464961822695044">🎬</tg-emoji> Kino nomini yuboring:', replyOptions());
-});
-
 bot.on('video', async (ctx) => {
-  if (!isAdmin(ctx)) return ctx.reply('Kino kodini yuboring.');
+  if (!isAdmin(ctx)) return ctx.reply('Musiqa nomi yoki artistini yuboring.');
   if (ctx.session?.step === 'broadcast_media') {
     ctx.session.broadcast.mediaType = 'video';
     ctx.session.broadcast.media = ctx.message.video.file_id;
     ctx.session.step = 'broadcast_caption';
     return ctx.reply('Media uchun izoh yuboring:');
   }
-  if (ctx.session?.step === 'edit_movie_video') {
-    const movie = await Movie.findOneAndUpdate(
-      { code: ctx.session.movieCode },
-      { $set: { videoFileId: ctx.message.video.file_id } },
-      { returnDocument: 'after' }
-    ).lean();
-    if (movie) await logAdminAction(ctx, 'movie_video_updated', movie.code);
-    reset(ctx);
-    return ctx.reply(movie ? 'Kino videosi yangilandi.' : 'Kino topilmadi.', movie ? movieAdminKeyboard(movie.code) : adminKeyboard());
-  }
-  if (ctx.session?.step === 'edit_movie_promo') {
-    const movie = await Movie.findOneAndUpdate(
-      { code: ctx.session.movieCode },
-      { $set: { promoFileId: ctx.message.video.file_id, promoType: 'video' } },
-      { returnDocument: 'after' }
-    ).lean();
-    if (movie) await publishMovieAdvertisement(movie, true);
-    if (movie) await logAdminAction(ctx, 'movie_promo_updated', movie.code);
-    reset(ctx);
-    return ctx.reply(movie ? 'Reklama media si yangilandi va kanalga yuborildi.' : 'Kino topilmadi.', movie ? movieAdminKeyboard(movie.code) : adminKeyboard());
-  }
-  if (ctx.session?.step === 'movie_video') {
-    ctx.session.movie.videoFileId = ctx.message.video.file_id;
-    ctx.session.step = 'movie_promo';
-    return ctx.reply('Kino uchun qisqa video yoki rasm yuboring:');
-  }
-  if (ctx.session?.step === 'movie_promo') {
-    ctx.session.movie.promoFileId = ctx.message.video.file_id;
-    ctx.session.movie.promoType = 'video';
-    return finishMovieCreation(ctx);
-  }
-  return ctx.reply('Kino kodini yuboring.');
+  return ctx.reply('Musiqa nomi yoki artistini yuboring.');
 });
 
 bot.on('photo', async (ctx) => {
@@ -1357,38 +1087,16 @@ bot.on('photo', async (ctx) => {
     ctx.session.step = 'broadcast_caption';
     return ctx.reply('Media uchun izoh yuboring:');
   }
-  if (isAdmin(ctx) && ctx.session?.step === 'edit_movie_promo') {
-    const movie = await Movie.findOneAndUpdate(
-      { code: ctx.session.movieCode },
-      { $set: { promoFileId: ctx.message.photo.at(-1).file_id, promoType: 'photo' } },
-      { returnDocument: 'after' }
-    ).lean();
-    if (movie) await publishMovieAdvertisement(movie, true);
-    if (movie) await logAdminAction(ctx, 'movie_promo_updated', movie.code);
-    reset(ctx);
-    return ctx.reply(movie ? 'Reklama media si yangilandi va kanalga yuborildi.' : 'Kino topilmadi.', movie ? movieAdminKeyboard(movie.code) : adminKeyboard());
-  }
-  if (!isAdmin(ctx) || ctx.session?.step !== 'movie_promo') return ctx.reply('Kino kodini yuboring.');
-  ctx.session.movie.promoFileId = ctx.message.photo.at(-1).file_id;
-  ctx.session.movie.promoType = 'photo';
-  return finishMovieCreation(ctx);
+  return ctx.reply('Musiqa nomi yoki artistini yuboring.');
 });
 
 bot.on('animation', async (ctx) => {
-  if (!isAdmin(ctx) || ctx.session?.step !== 'broadcast_media') return ctx.reply('Kino kodini yuboring.');
+  if (!isAdmin(ctx) || ctx.session?.step !== 'broadcast_media') return ctx.reply('Musiqa nomi yoki artistini yuboring.');
   ctx.session.broadcast.mediaType = 'animation';
   ctx.session.broadcast.media = ctx.message.animation.file_id;
   ctx.session.step = 'broadcast_caption';
   return ctx.reply('Media uchun izoh yuboring:');
 });
-
-async function finishMovieCreation(ctx) {
-  const movie = await Movie.create(ctx.session.movie);
-  await publishMovieAdvertisement(movie);
-  await logAdminAction(ctx, 'movie_created', `${movie.code}: ${movie.title}`);
-  reset(ctx);
-  return ctx.reply(`Kino joylandi va ${data.settings.movieChannel.username} kanaliga reklama yuborildi.`, adminKeyboard(ctx));
-}
 
 bot.on('text', async (ctx) => {
   const rawText = ctx.message.text;
@@ -1396,7 +1104,7 @@ bot.on('text', async (ctx) => {
   const step = ctx.session?.step;
   if (value.startsWith('/')) {
     reset(ctx);
-    return ctx.reply(isAdmin(ctx) ? 'Bu command mavjud emas. Admin paneldan foydalaning.' : 'Bu command mavjud emas. Kino kodini yuboring.');
+    return ctx.reply(isAdmin(ctx) ? 'Bu command mavjud emas. Admin paneldan foydalaning.' : 'Bu command mavjud emas. Musiqa nomi yoki artistini yuboring.');
   }
   if (/^(?:Admin panel|🛠 Admin panel)$/.test(value)) {
     if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
@@ -1413,11 +1121,6 @@ bot.on('text', async (ctx) => {
     reset(ctx);
     return replyMusicResults(ctx, value);
   }
-  if (step === 'movie_search') {
-    if (!/^\d+$/.test(value)) return ctx.reply(configuredMessage('nonNumericCode', ctx, { code: value }), replyOptions());
-    reset(ctx);
-    return sendMovie(ctx, value);
-  }
   if (step === 'broadcast_button_text') {
     ctx.session.pendingButtonText = value;
     ctx.session.step = 'broadcast_button_url';
@@ -1428,13 +1131,6 @@ bot.on('text', async (ctx) => {
     ctx.session.pendingButtonUrl = value;
     ctx.session.step = 'broadcast_button_color';
     return ctx.reply('Tugma rangini tanlang:', broadcastColorKeyboard());
-  }
-  if (step === 'find_movie') {
-    if (!/^\d+$/.test(value)) return ctx.reply(configuredMessage('nonNumericCode', ctx, { code: value }), replyOptions());
-    const movie = await Movie.findOne({ code: value }).lean();
-    if (!movie) return ctx.reply('Kino topilmadi. Boshqa kod yuboring:', adminKeyboard());
-    reset(ctx);
-    return ctx.reply(movieAdminText(movie), movieAdminKeyboard(movie.code));
   }
   if (step === 'admin_add') {
     if (!isOwner(ctx)) return ctx.reply('Faqat asosiy admin yangi admin qo\'sha oladi.');
@@ -1451,32 +1147,6 @@ bot.on('text', async (ctx) => {
     reset(ctx);
     return ctx.reply(`Admin qo\'shildi: ${telegramId}. Endi uning huquqlarini belgilang.`, adminKeyboard(ctx));
   }
-  if (/^edit_movie_(title|code|genre|language)$/.test(step || '')) {
-    const field = step.slice('edit_movie_'.length);
-    if (field === 'code') {
-      if (!/^\d+$/.test(value)) return ctx.reply('Kino kodi faqat raqam bo\'lishi kerak:');
-      if (value !== ctx.session.movieCode && await Movie.exists({ code: value })) return ctx.reply('Bu kino kodi band. Boshqa kod yuboring:');
-    }
-    const movie = await Movie.findOneAndUpdate(
-      { code: ctx.session.movieCode },
-      { $set: { [field]: value } },
-      { returnDocument: 'after' }
-    ).lean();
-    if (movie) await publishMovieAdvertisement(movie);
-    if (movie) await logAdminAction(ctx, 'movie_updated', `${movie.code}: ${field}`);
-    reset(ctx);
-    return ctx.reply(movie ? 'Kino ma\'lumoti yangilandi.' : 'Kino topilmadi.', movie ? movieAdminKeyboard(movie.code) : adminKeyboard());
-  }
-  if (step === 'movie_channel') {
-    try {
-      data.settings.movieChannel = await checkFullAdmin(ctx, normalizeChannel(value));
-      await saveSettings();
-      reset(ctx);
-      return ctx.reply(`Kino reklama kanali ${data.settings.movieChannel.username} qilib saqlandi.`, adminKeyboard());
-    } catch (error) {
-      return ctx.reply(error.message);
-    }
-  }
   if (step === 'required_subscription_channel') {
     try {
       const channel = await checkFullAdmin(ctx, normalizeChannel(value));
@@ -1487,38 +1157,6 @@ bot.on('text', async (ctx) => {
     } catch (error) {
       return ctx.reply(error.message);
     }
-  }
-  if (step === 'movie_title') {
-    ctx.session.movie = { title: value };
-    ctx.session.step = 'movie_code';
-    return ctx.reply('Kino kodini yuboring (masalan: 1001):');
-  }
-  if (step === 'movie_code') {
-    if (!/^\d+$/.test(value)) {
-      return ctx.reply('⚠️ Kino kodi faqat raqamlardan iborat bo\'lishi kerak. Masalan: 1001. Qayta yuboring:');
-    }
-    if (await Movie.exists({ code: value })) return ctx.reply('⚠️ Bu kino kodi band. Boshqa kod yuboring:');
-    ctx.session.movie.code = value;
-    ctx.session.step = 'movie_genre';
-    return ctx.reply('Kino janrini yuboring:');
-  }
-  if (step === 'movie_genre') {
-    ctx.session.movie.genre = value;
-    ctx.session.step = 'movie_language';
-    return ctx.reply('Kino tilini yuboring:');
-  }
-  if (step === 'movie_language') {
-    ctx.session.movie.language = value;
-    ctx.session.step = 'movie_video';
-    return ctx.reply('Kino videosini yuboring:');
-  }
-  if (/^\d+$/.test(value)) {
-    if (isAdminPanelActive(ctx)) {
-      const movie = await Movie.findOne({ code: value }).lean();
-      if (!movie) return ctx.reply('Kino topilmadi. Boshqa kod yuboring:', adminKeyboard());
-      return ctx.reply(movieAdminText(movie), movieAdminKeyboard(movie.code));
-    }
-    return sendMovie(ctx, value);
   }
   return ctx.reply(configuredMessage('invalidCode', ctx, { code: value }), replyOptions());
 });
@@ -1554,7 +1192,7 @@ module.exports = {
 async function startBot() {
   await hydrateSettings();
   await bot.launch();
-  console.log('Movie bot ishga tushdi.');
+  console.log('Music bot ishga tushdi.');
 }
 
 if (require.main === module) {
@@ -1565,4 +1203,4 @@ if (require.main === module) {
 }
 
 process.once('SIGINT', async () => { bot.stop('SIGINT'); await mongoose.disconnect(); });
-process.once('SIGTERM', async () => { bot.stop('SIGTERM'); await mongoose.disconnect(); });
+process.once('SIGTERM', async () => { bot.stop('SIGTERM'); await mongoose.disconnect(); }); 

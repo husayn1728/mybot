@@ -40,6 +40,14 @@ test('isSupportedMediaUrl recognizes supported social links', () => {
   assert.equal(isSupportedMediaUrl('https://example.com/file.mp4'), false);
 });
 
+test('movie-only flows are removed and music stay supported', () => {
+  const source = require('fs').readFileSync('bot.js', 'utf8');
+  assert.equal(source.includes('admin:add_movie'), false);
+  assert.equal(source.includes('/kino'), false);
+  assert.equal(source.includes('latest_movies'), false);
+  assert.equal(source.includes('music:search'), true);
+});
+
 test('youtubeVideoFormatFilter prefers mp4 video streams over audio-only streams', () => {
   const filter = youtubeVideoFormatFilter('best');
   assert.match(filter, /mp4/i);
