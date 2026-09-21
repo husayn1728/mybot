@@ -154,11 +154,13 @@ function permissionsLabel(permissions) {
 }
 
 function actionButton(text, callbackData, style = 'secondary') {
-  return { text, callback_data: callbackData, style };
+  void style;
+  return { text, callback_data: callbackData };
 }
 
 function urlButton(text, url, style = 'primary') {
-  return { text, url, style };
+  void style;
+  return { text, url };
 }
 
 function adminManagementKeyboard(admin) {
@@ -502,12 +504,12 @@ function welcomeMessage(ctx) {
 function welcomeMarkup(ctx) {
   const rows = [
     [
-      { text: '🎵 Musiqa qidirish', callback_data: 'music:search', style: 'secondary' },
-      { text: '❓ Yordam', callback_data: 'help', style: 'danger' }
+      { text: '🎵 Musiqa qidirish', callback_data: 'music:search' },
+      { text: '❓ Yordam', callback_data: 'help' }
     ],
     [
-      { text: '🔒 Mening kanallarim', callback_data: 'my_channels', style: 'primary' },
-      ...(isAdmin(ctx) ? [{ text: '🛠 Admin panel', callback_data: 'admin:panel', style: 'secondary' }] : [])
+      { text: '🔒 Mening kanallarim', callback_data: 'my_channels' },
+      ...(isAdmin(ctx) ? [{ text: '🛠 Admin panel', callback_data: 'admin:panel' }] : [])
     ]
   ];
   return Markup.inlineKeyboard(rows).reply_markup;
@@ -1127,7 +1129,7 @@ bot.action(/^music:pick:(\d+)$/, async (ctx) => {
         ? Markup.inlineKeyboard([[{
           text: '🎵 Musiqani ochish',
           url: fallbackUrl,
-          style: 'success'
+
         }]]).reply_markup
         : undefined;
       await ctx.reply(
