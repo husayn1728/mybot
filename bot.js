@@ -82,7 +82,8 @@ const ADMIN_USERNAME = config.admin.username;
 const ADMIN_TG_ID = config.admin.telegramId;
 const adminPermissions = ['broadcast', 'stats', 'settings', 'admins'];
 const adminRegistry = new Map();
-const data = { settings: { requiredChannels: [] } };
+const joinRequestQueue = new Map();
+const data = { settings: { requiredChannels: [], joinApprovalMode: 'auto' } };
 const premiumEmojis = {
   welcome: '<tg-emoji emoji-id="5199785165735367039">⚡️</tg-emoji>',
   bot: '<tg-emoji emoji-id="5323359973365784232">🤖</tg-emoji>',
@@ -391,6 +392,16 @@ async function downloadMusicMp3(result) {
   }
 }
 
+function joinRequestKeyboard() {
+  const mode = data.settings.joinApprovalMode || 'auto';
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(`${mode === 'auto' ? '✅' : '⬜'} Avtomatik qabul qilish`, 'admin:join_mode:auto')],
+    [Markup.button.callback(`${mode === 'batch' ? '✅' : '⬜'} To\'planganlarni bittada qabul qilish`, 'admin:join_mode:batch')],
+    [Markup.button.callback('📦 Kutilayotganlar ro\'yxatini qabul qilish', 'admin:approve_pending_joins')],
+    [Markup.button.callback('⬅️ Admin panel', 'admin:panel')]
+  ]);
+}
+
 function adminKeyboard() {
   const ctx = arguments[0];
   const can = (permission) => !ctx || hasPermission(ctx, permission);
@@ -407,6 +418,9 @@ function adminKeyboard() {
   ]);
   if (can('settings')) rows.push([
     Markup.button.callback('❌ Obunani o\'chirish', 'admin:subscription_off')
+  ]);
+  if (can('settings')) rows.push([
+    Markup.button.callback('🔐 Maxfiy kanalga qo\'shilish', 'admin:join_requests')
   ]);
   if (isOwner(ctx || {})) rows.push([Markup.button.callback('👥 Adminlarni boshqarish', 'admin:admins')]);
   if (isOwner(ctx || {})) rows.push([Markup.button.callback('🧾 Admin loglari', 'admin:logs')]);
@@ -519,10 +533,66 @@ async function checkFullAdmin(ctx, username) {
   return { id: chat.id, title: chat.title || username, username: chat.username ? `@${chat.username}` : username };
 }
 
+async function approveChatJoinRequestForBot(ctx, chatId, userId) {
+  if (!chatId || !userId) return { approved: false, reason: 'Noto\'g\'ri foydalanuvchi yoki chat identifikatori.' };
+
+  try {
+    const botInfo = await ctx.telegram.getMe();
+    const botMember = await ctx.telegram.getChatMember(chatId, botInfo.id);
+    if (!['creator', 'administrator'].includes(botMember.status)) {
+      return { approved: false, reason: 'Bot bu kanalga admin qilinmagan.' };
+    }
+
+    await ctx.telegram.approveChatJoinRequest(chatId, userId);
+    return { approved: true };
+  } catch (error) {
+    console.error('approveChatJoinRequest failed:', error.response?.description || error.message);
+    return { approved: false, reason: error.response?.description || error.message };
+  }
+}
+
+async function batchApprovePendingJoinRequests(ctx, chatId) {
+  const targetChatId = Number(chatId || ctx.chat?.id || ctx.update?.chat_join_request?.chat?.id || 0);
+  if (!targetChatId) {
+    return { approved: 0, total: 0, queued: 0 };
+  }
+
+  const pending = joinRequestQueue.get(targetChatId) || [];
+  if (!pending.length) {
+    return { approved: 0, total: 0, queued: 0 };
+  }
+
+  let approved = 0;
+  for (const item of pending) {
+    const result = await approveChatJoinRequestForBot(ctx, targetChatId, item.userId);
+    if (result.approved) approved += 1;
+  }
+
+  joinRequestQueue.delete(targetChatId);
+  return { approved, total: pending.length, queued: pending.length };
+}
+
+function enqueueJoinRequest(chatId, request) {
+  const id = Number(chatId);
+  if (!id || !request?.userId) return false;
+  const list = joinRequestQueue.get(id) || [];
+  const exists = list.some((item) => item.userId === Number(request.userId));
+  if (exists) return false;
+  list.push(request);
+  joinRequestQueue.set(id, list);
+  return true;
+}
+
 async function saveSettings() {
   await BotConfig.findOneAndUpdate(
     { configKey: 'main_config' },
-    { $set: { channels: data.settings.requiredChannels, settings: { messages: data.settings.messages } } },
+    { $set: {
+      channels: data.settings.requiredChannels,
+      settings: {
+        messages: data.settings.messages,
+        joinApprovalMode: data.settings.joinApprovalMode || 'auto'
+      }
+    } },
     { upsert: true }
   );
 }
@@ -538,6 +608,7 @@ async function hydrateSettings() {
     configDocument = configDocument.toObject();
   }
   data.settings.requiredChannels = configDocument.channels || [];
+  data.settings.joinApprovalMode = configDocument.settings?.joinApprovalMode || 'auto';
   data.settings.messages = { ...defaultMessages };
 }
 
@@ -1067,6 +1138,62 @@ bot.action('admin:subscription_off', async (ctx) => {
   data.settings.requiredChannels = [];
   await saveSettings();
   return ctx.reply('Majburiy obuna o\'chirildi.', adminKeyboard());
+});
+
+bot.action('admin:join_requests', async (ctx) => {
+  await ctx.answerCbQuery();
+  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
+  return ctx.reply('Maxfiy kanalga qo\'shilish sorovlari:', joinRequestKeyboard());
+});
+
+bot.action(/^admin:join_mode:(auto|batch)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
+  const mode = ctx.match[1];
+  data.settings.joinApprovalMode = mode;
+  await saveSettings();
+  return ctx.reply(`Qo\'shilish sorovlari rejimi: ${mode === 'auto' ? 'avtomatik qabul' : 'bittada qabul qilish'}`, joinRequestKeyboard());
+});
+
+bot.action('admin:approve_pending_joins', async (ctx) => {
+  await ctx.answerCbQuery();
+  if (!isAdmin(ctx)) return ctx.reply('Ruxsat yo\'q.');
+
+  const allQueues = Array.from(joinRequestQueue.entries());
+  if (!allQueues.length) return ctx.reply('Hozirda qabul qilish uchun sorovlar yo\'q.', joinRequestKeyboard());
+
+  let totalApproved = 0;
+  for (const [chatId, requests] of allQueues) {
+    const result = await batchApprovePendingJoinRequests(ctx, chatId);
+    totalApproved += result.approved;
+  }
+
+  return ctx.reply(`Kutilayotgan ${totalApproved} ta qo\'shilish sorovi qabul qilindi.`, joinRequestKeyboard());
+});
+
+bot.on('chat_join_request', async (ctx) => {
+  const request = ctx.chatJoinRequest || ctx.update.chat_join_request;
+  const chatId = Number(request?.chat?.id || 0);
+  const userId = Number(request?.from?.id || 0);
+  if (!chatId || !userId) return;
+
+  if ((data.settings.joinApprovalMode || 'auto') === 'batch') {
+    const queued = enqueueJoinRequest(chatId, {
+      userId,
+      username: request.from?.username || '',
+      firstName: request.from?.first_name || '',
+      date: request.date
+    });
+    if (queued) {
+      console.log(`Join request queued for chat ${chatId} user ${userId}`);
+    }
+    return;
+  }
+
+  const result = await approveChatJoinRequestForBot(ctx, chatId, userId);
+  if (!result.approved) {
+    console.warn(`Auto-approve failed for chat ${chatId} user ${userId}: ${result.reason}`);
+  }
 });
 
 bot.on('video', async (ctx) => {

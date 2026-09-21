@@ -10,3 +10,11 @@ assert.strictEqual(
   true,
   'checkFullAdmin must require the user who is adding the channel to be a channel creator or administrator.'
 );
+
+assert.strictEqual(
+  source.includes("chat_join_request") &&
+  source.includes("approveChatJoinRequest") &&
+  source.includes("batchApprovePendingJoinRequests"),
+  true,
+  'Bot must support private channel join requests in both auto and batch approval modes.'
+);
