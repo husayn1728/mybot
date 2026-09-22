@@ -14,6 +14,9 @@ const ffmpeg = require('ffmpeg-static');
 
 const mongoConnection = mongoose.connect(config.mongoUri, {
   serverSelectionTimeoutMS: 10000
+}).catch((error) => {
+  console.warn('MongoDB connection failed:', error.message || error);
+  return null;
 });
 
 const userSchema = new mongoose.Schema({
@@ -259,7 +262,7 @@ function buildYoutubeSearchUrl(query, key) {
     q: query,
     key
   });
-  return `https://www.googleapis.com/youtube/v3/search?${params.toString()}`;
+  return `https://youtube.googleapis.com/youtube/v3/search?${params.toString().replace(/\+/g, '%20')}`;
 }
 
 function isSupportedMediaUrl(value) {
@@ -1261,7 +1264,7 @@ bot.action(/^admin:manage:(\d+)$/, async (ctx) => {
   );
 });
 
-bot.action(/^admin:perm:(\d+):(movies|broadcast|stats|settings|admins)$/, async (ctx) => {
+bot.action(/^admin:perm:(\d+):(broadcast|stats|settings|admins)$/, async (ctx) => {
   await ctx.answerCbQuery();
   if (!isOwner(ctx)) return ctx.reply('Faqat asosiy admin bu bo\'limni boshqaradi.');
   const telegramId = Number(ctx.match[1]);

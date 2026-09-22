@@ -46,6 +46,14 @@ test('movie-only flows are removed and music stay supported', () => {
   assert.equal(source.includes('/kino'), false);
   assert.equal(source.includes('latest_movies'), false);
   assert.equal(source.includes('music:search'), true);
+  assert.equal(source.includes(':movies'), false);
+});
+
+test('help section remains available and search uses the supported Google API host', () => {
+  const source = require('fs').readFileSync('bot.js', 'utf8');
+  assert.equal(source.includes("'help'"), true);
+  assert.equal(source.includes('Yordam'), true);
+  assert.equal(buildYoutubeSearchUrl('billie eilish', 'secret-key').includes('youtube.googleapis.com/youtube/v3/search'), true);
 });
 
 test('youtubeVideoFormatFilter prefers mp4 video streams over audio-only streams', () => {
