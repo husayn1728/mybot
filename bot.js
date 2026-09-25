@@ -383,8 +383,18 @@ async function downloadMusicMp3(result) {
     }
 
     const { spawn } = require('child_process');
-    const ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
     const ffmpegLocation = resolveFfmpegLocation();
+    
+    let ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
+    try {
+      const ytdlpExec = require('yt-dlp-exec');
+      if (ytdlpExec && ytdlpExec.YTDLP_PATH) {
+        ytdlpPath = ytdlpExec.YTDLP_PATH;
+      }
+    } catch (e) {
+      console.log('yt-dlp-exec yuklashda muammo, standart yt-dlp ishlatiladi.');
+    }
+
     const args = [
       rawUrl,
       '--no-playlist',
