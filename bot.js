@@ -1043,11 +1043,21 @@ bot.action('main_menu', async (ctx) => {
 
 bot.action('help', async (ctx) => {
   await ctx.answerCbQuery();
-  return ctx.reply(getHelpText(ctx), replyOptions());
+  try {
+    return await ctx.reply(getHelpText(ctx), { parse_mode: 'HTML', disable_web_page_preview: true });
+  } catch (error) {
+    console.error('HELP_BUTTON_REPLY_FAILED:', error.response?.description || error.message || error);
+    return ctx.reply(getHelpText(ctx).replace(/<[^>]+>/g, ''), { disable_web_page_preview: true });
+  }
 });
 
 bot.command('help', async (ctx) => {
-  return ctx.reply(getHelpText(ctx), replyOptions());
+  try {
+    return await ctx.reply(getHelpText(ctx), { parse_mode: 'HTML', disable_web_page_preview: true });
+  } catch (error) {
+    console.error('HELP_COMMAND_REPLY_FAILED:', error.response?.description || error.message || error);
+    return ctx.reply(getHelpText(ctx).replace(/<[^>]+>/g, ''), { disable_web_page_preview: true });
+  }
 });
 
 bot.command('menu', async (ctx) => {
@@ -1476,6 +1486,7 @@ bot.on('text', async (ctx) => {
 
 bot.on('callback_query', async (ctx) => {
   await safeAnswerCbQuery(ctx);
+  if (ctx.callbackQuery?.data === 'help') return;
 });
 
 bot.on('my_chat_member', async (ctx) => {
