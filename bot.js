@@ -358,7 +358,14 @@ function resolveFfmpegLocation() {
   for (const dir of dirs) {
     if (fsSync.existsSync(path.join(dir, 'ffmpeg'))) return dir;
   }
-  if (ffmpeg && fsSync.existsSync(ffmpeg)) return ffmpeg;
+  if (ffmpeg) {
+    const ffmpegPath = String(ffmpeg).trim();
+    if (ffmpegPath && fsSync.existsSync(ffmpegPath)) {
+      const ffmpegDir = path.dirname(ffmpegPath);
+      if (ffmpegDir && fsSync.existsSync(path.join(ffmpegDir, 'ffmpeg'))) return ffmpegDir;
+      return ffmpegDir || ffmpegPath;
+    }
+  }
   return null; // yt-dlp PATH'dan o'zi qidiradi
 }
 
@@ -1469,7 +1476,6 @@ bot.on('text', async (ctx) => {
 
 bot.on('callback_query', async (ctx) => {
   await safeAnswerCbQuery(ctx);
-  reset(ctx);
 });
 
 bot.on('my_chat_member', async (ctx) => {
