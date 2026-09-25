@@ -11,6 +11,7 @@ const os = require('os');
 const path = require('path');
 const NodeID3 = require('node-id3');
 const ffmpeg = require('ffmpeg-static');
+const ytdlpExec = require('yt-dlp-exec');
 
 const mongoConnection = mongoose.connect(config.mongoUri, {
   serverSelectionTimeoutMS: 10000
@@ -354,19 +355,22 @@ function formatMusicDuration(value) {
 }
 
 function resolveFfmpegLocation() {
-  const dirs = [process.env.FFMPEG_LOCATION, '/opt/homebrew/bin', '/usr/local/bin'].filter(Boolean);
+  const dirs = [process.env.FFMPEG_LOCATION, '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].filter(Boolean);
   for (const dir of dirs) {
     if (fsSync.existsSync(path.join(dir, 'ffmpeg'))) return dir;
+    if (fsSync.existsSync(path.join(dir, 'ffmpeg.exe'))) return dir;
   }
   if (ffmpeg) {
     const ffmpegPath = String(ffmpeg).trim();
     if (ffmpegPath && fsSync.existsSync(ffmpegPath)) {
       const ffmpegDir = path.dirname(ffmpegPath);
-      if (ffmpegDir && fsSync.existsSync(path.join(ffmpegDir, 'ffmpeg'))) return ffmpegDir;
+      if (ffmpegDir && (fsSync.existsSync(path.join(ffmpegDir, 'ffmpeg')) || fsSync.existsSync(path.join(ffmpegDir, 'ffmpeg.exe')))) {
+        return ffmpegDir;
+      }
       return ffmpegDir || ffmpegPath;
     }
   }
-  return null; // yt-dlp PATH'dan o'zi qidiradi
+  return null;
 }
 
 async function downloadMusicMp3(result) {
@@ -382,56 +386,28 @@ async function downloadMusicMp3(result) {
       throw new Error('Faqat YouTube musiqalari qo\'llab-quvvatlanadi.');
     }
 
-    const { spawn } = require('child_process');
     const ffmpegLocation = resolveFfmpegLocation();
-    
-    let ytdlpPath = process.env.YTDLP_PATH || 'yt-dlp';
-    try {
-      const ytdlpExec = require('yt-dlp-exec');
-      if (ytdlpExec && ytdlpExec.YTDLP_PATH) {
-        ytdlpPath = ytdlpExec.YTDLP_PATH;
+    const ytFlags = {
+      noPlaylist: true,
+      format: 'bestaudio/best',
+      extractAudio: true,
+      audioFormat: 'mp3',
+      audioQuality: '192K',
+      maxFilesize: '48M',
+      noWarnings: true,
+      noProgress: true,
+      output: path.join(tempDir, 'music.%(ext)s')
+    };
+
+    if (ffmpegLocation) ytFlags['ffmpeg-location'] = ffmpegLocation;
+    if (process.env.YTDLP_COOKIES) ytFlags.cookies = process.env.YTDLP_COOKIES;
+
+    await ytdlpExec(rawUrl, ytFlags, { timeout: 3 * 60 * 1000 }).catch((error) => {
+      const message = String(error?.message || error || '');
+      if (/timed out|timeout/i.test(message)) {
+        throw new Error('yt-dlp vaqt tugadi (3 daqiqa).');
       }
-    } catch (e) {
-      console.log('yt-dlp-exec yuklashda muammo, standart yt-dlp ishlatiladi.');
-    }
-
-    const args = [
-      rawUrl,
-      '--no-playlist',
-      '-f', 'bestaudio/best',
-      '-x',
-      '--audio-format', 'mp3',
-      '--audio-quality', '192K',
-      '--max-filesize', '48M',
-      '--no-warnings',
-      '--no-progress',
-      '-o', path.join(tempDir, 'music.%(ext)s')
-    ];
-    if (ffmpegLocation) args.push('--ffmpeg-location', ffmpegLocation);
-    if (process.env.YTDLP_COOKIES) args.push('--cookies', process.env.YTDLP_COOKIES);
-
-    await new Promise((resolve, reject) => {
-      const proc = spawn(ytdlpPath, args);
-      let stderr = '';
-      const timer = setTimeout(() => {
-        proc.kill('SIGKILL');
-        reject(new Error('yt-dlp vaqt tugadi (3 daqiqa).'));
-      }, 3 * 60 * 1000);
-
-      proc.stderr.setEncoding('utf8');
-      proc.stderr.on('data', (chunk) => { stderr += chunk; });
-      proc.on('error', (error) => {
-        clearTimeout(timer);
-        reject(error.code === 'ENOENT'
-          ? new Error('yt-dlp o\'rnatilmagan (brew install yt-dlp).')
-          : error);
-      });
-      proc.on('close', (code) => {
-        clearTimeout(timer);
-        if (code === 0) return resolve();
-        const lastLine = stderr.trim().split('\n').filter(Boolean).pop() || '';
-        reject(new Error(`yt-dlp xatosi (${code}): ${lastLine}`));
-      });
+      throw error;
     });
 
     const stats = await fs.stat(outputPath).catch(() => null);
